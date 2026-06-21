@@ -1,0 +1,117 @@
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Artifact version tag without architecture suffix
+        required: false
+        type: string
+      publish:
+        description: Publish OCI artifacts to GHCR
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck yamllint jq
+
+      - name: Install Packer
+        uses: hashicorp/setup-packer@v3
+
+      - name: Static validation
+        run: scripts/static-validate.sh
+
+  build:
+    needs: static
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="sha-${GITHUB_SHA::12}"
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system qemu-utils xz-utils jq
+
+      - name: Install Packer
+        uses: hashicorp/setup-packer@v3
+
+      - name: Build ${{ matrix.arch }} disk
+        run: scripts/build.sh "${{ matrix.arch }}"
+        env:
+          QEMU_ACCELERATOR: none
+
+      - name: Package ${{ matrix.arch }} artifact
+        run: scripts/package.sh "${{ matrix.arch }}" "${{ steps.version.outputs.version }}"
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-vm-base-${{ matrix.arch }}
+          path: artifacts/${{ matrix.arch }}
+          if-no-files-found: error
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install ORAS
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish ${{ matrix.arch }} OCI artifact
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        run: |
+          tags=()
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            tags+=(latest)
+          fi
+          scripts/publish.sh "${{ matrix.arch }}" "${{ steps.version.outputs.version }}" "${IMAGE}" "${tags[@]}"

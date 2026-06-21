@@ -55,7 +55,7 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
+    timeout-minutes: 360
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,8 +81,17 @@ jobs:
       - name: Install Packer
         uses: hashicorp/setup-packer@v3
 
+      - name: Select QEMU accelerator
+        id: qemu
+        run: |
+          accelerator="$(scripts/select-qemu-accelerator.sh)"
+          echo "accelerator=${accelerator}" >> "${GITHUB_OUTPUT}"
+          echo "QEMU accelerator: ${accelerator}"
+
       - name: Build ${{ matrix.arch }} disk
         run: scripts/build.sh "${{ matrix.arch }}"
+        env:
+          QEMU_ACCELERATOR: ${{ steps.qemu.outputs.accelerator }}
 
       - name: Package ${{ matrix.arch }} artifact
         run: scripts/package.sh "${{ matrix.arch }}" "${{ steps.version.outputs.version }}"

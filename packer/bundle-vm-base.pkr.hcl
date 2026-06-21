@@ -68,6 +68,13 @@ locals {
   cpu         = var.qemu_accelerator == "kvm" ? "host" : "max"
   iso_url     = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/${var.ubuntu_series}-server-cloudimg-${local.ubuntu_arch}.img"
   sha_url     = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/SHA256SUMS"
+  qemuargs = var.arch == "arm64" ? [
+    ["-cpu", local.cpu],
+    ["-device", "virtio-gpu-pci"],
+    ["-device", "qemu-xhci"],
+    ] : [
+    ["-cpu", local.cpu],
+  ]
 }
 
 source "qemu" "ubuntu_cloud" {
@@ -77,27 +84,21 @@ source "qemu" "ubuntu_cloud" {
     "meta-data" = "instance-id: bundle-vm-base-${var.arch}\nlocal-hostname: bundle-vm-base\n"
     "user-data" = templatefile("cloud-init.pkrtpl.hcl", {})
   }
-  cd_label         = "cidata"
-  cpus             = 2
-  disk_compression = false
-  disk_image       = true
-  disk_size        = var.disk_size
-  format           = "qcow2"
-  headless         = true
-  iso_checksum     = "file:${local.sha_url}"
-  iso_url          = local.iso_url
-  machine_type     = local.machine
-  memory           = 4096
-  net_device       = "virtio-net"
-  output_directory = "output/${var.arch}"
-  qemu_binary      = "qemu-system-${local.qemu_arch}"
-  qemuargs = var.arch == "arm64" ? [
-    ["-cpu", local.cpu],
-    ["-device", "virtio-gpu-pci"],
-    ["-device", "qemu-xhci"],
-    ] : [
-    ["-cpu", local.cpu],
-  ]
+  cd_label               = "cidata"
+  cpus                   = 2
+  disk_compression       = false
+  disk_image             = true
+  disk_size              = var.disk_size
+  format                 = "qcow2"
+  headless               = true
+  iso_checksum           = "file:${local.sha_url}"
+  iso_url                = local.iso_url
+  machine_type           = local.machine
+  memory                 = 4096
+  net_device             = "virtio-net"
+  output_directory       = "output/${var.arch}"
+  qemu_binary            = "qemu-system-${local.qemu_arch}"
+  qemuargs               = local.qemuargs
   shutdown_command       = "sudo cloud-init clean --logs && sudo shutdown -P now"
   ssh_handshake_attempts = 120
   ssh_password           = "packer"

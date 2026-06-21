@@ -2,7 +2,7 @@
 set -euo pipefail
 
 arch="${1:-amd64}"
-accelerator="${QEMU_ACCELERATOR:-kvm}"
+accelerator="$(scripts/select-qemu-accelerator.sh)"
 
 case "${arch}" in
 amd64 | arm64) ;;
@@ -16,6 +16,8 @@ set -a
 # shellcheck source=versions.env
 source versions.env
 set +a
+
+echo "Using QEMU accelerator: ${accelerator}"
 
 packer init packer
 (

@@ -55,9 +55,12 @@ scripts/build.sh amd64
 scripts/package.sh amd64 dev
 ```
 
-`scripts/build.sh` defaults to `QEMU_ACCELERATOR=kvm`. On environments without
-KVM, set `QEMU_ACCELERATOR=none`; this is slower and should only be used where
-hardware acceleration is unavailable.
+`scripts/build.sh` defaults to `QEMU_ACCELERATOR=auto`, which selects `kvm` only
+when `/dev/kvm` is readable and writable, and otherwise selects `none` so the CI
+job can still produce artifacts on runners without nested virtualization. Set
+`QEMU_ACCELERATOR=kvm` or `QEMU_ACCELERATOR=none` to force a specific mode.
+Software acceleration is slower and should only be used where hardware
+acceleration is unavailable; CI allows up to 360 minutes for that fallback path.
 
 For arm64, run the same commands on an ARM64 host:
 

@@ -13,21 +13,26 @@ architecture as a separate OCI artifact in GHCR:
 Builds are configured for native runners:
 
 - `amd64`: `ubuntu-latest`
-- `arm64`: `[self-hosted, linux, arm64, kvm]`
+- `arm64`: `self-hosted-linux-arm64-kvm`
 
-The arm64 build requires a self-hosted Linux ARM64 runner with usable `/dev/kvm`
-because the GitHub-hosted ARM64 runner used during PR validation fell back to
-software emulation and timed out waiting for SSH. Register the runner with these
-labels, or update the workflow matrix to match the organization's equivalent
-ARM64 KVM-capable runner labels:
+The arm64 build is in a separate manual workflow because it requires a
+self-hosted Linux ARM64 runner with usable `/dev/kvm`. The GitHub-hosted ARM64
+runner used during PR validation fell back to software emulation and timed out
+waiting for SSH. Register an appropriate self-hosted runner, or update
+`.github/workflows/build-arm64.yml` to match the organization's equivalent ARM64
+KVM-capable runner label:
 
 ```yaml
-- arch: arm64
-  runner: [self-hosted, linux, arm64, kvm]
+runs-on: self-hosted
 ```
 
 Native builds are preferred because k3s and cluster component provisioning makes
 cross-architecture QEMU emulation slow and less reliable.
+
+Pull request workflows do not start the arm64 build, so a missing self-hosted
+runner does not keep the PR workflow queued and block access to amd64 failure
+logs. Run the `build-arm64` workflow manually when the required self-hosted
+runner is available.
 
 ## Local build prerequisites
 

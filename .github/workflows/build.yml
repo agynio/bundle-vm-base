@@ -49,12 +49,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: [self-hosted, linux, arm64, kvm]
-    runs-on: ${{ matrix.runner }}
+        arch:
+          - amd64
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
       - name: Checkout

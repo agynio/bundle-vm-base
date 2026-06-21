@@ -120,7 +120,7 @@ build {
       "HELM_VERSION=${var.helm_version}",
       "KUBECTL_VERSION=${var.kubectl_version}",
     ]
-    execute_command = "sudo -E bash '{{ .Path }}'"
+    execute_command = "{{ range .Vars }}{{ . }} {{ end }}sudo -E bash '{{ .Path }}'"
     scripts = [
       "${path.root}/../scripts/provision-base.sh",
       "${path.root}/../scripts/install-k3s.sh",

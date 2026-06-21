@@ -89,8 +89,15 @@ scripts/publish.sh amd64 dev ghcr.io/agynio/bundle-vm-base latest
 The publisher pushes the compressed QCOW2 disk, metadata, checksums, and Lima
 example as one OCI artifact with an Agyn-specific artifact media type.
 
+Artifact versions are validated before packaging and publishing. They must be
+valid OCI tag components: 128 characters or fewer, start with an ASCII letter,
+digit, or underscore, and contain only ASCII letters, digits, underscores,
+periods, and hyphens.
+
 ## Credentials
 
 The base image must not include Agyn production, staging, external service, or
 developer credentials. Local-only credentials created by Lima or cloud-init are
 for VM access only and must not grant access to non-local Agyn infrastructure.
+The temporary Packer build user is removed during image cleanup, and password
+SSH authentication is disabled in the final disk.

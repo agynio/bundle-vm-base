@@ -70,6 +70,7 @@ jobs:
           else
             version="sha-${GITHUB_SHA::12}"
           fi
+          version="$(scripts/validate-version.sh "${version}")"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Install build dependencies
@@ -82,8 +83,6 @@ jobs:
 
       - name: Build ${{ matrix.arch }} disk
         run: scripts/build.sh "${{ matrix.arch }}"
-        env:
-          QEMU_ACCELERATOR: none
 
       - name: Package ${{ matrix.arch }} artifact
         run: scripts/package.sh "${{ matrix.arch }}" "${{ steps.version.outputs.version }}"

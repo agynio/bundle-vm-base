@@ -6,6 +6,8 @@ version="${2:?usage: $0 ARCH VERSION IMAGE [extra-tags...] }"
 image="${3:?usage: $0 ARCH VERSION IMAGE [extra-tags...] }"
 shift 3
 
+version="$(scripts/validate-version.sh "${version}")"
+
 artifact_dir="artifacts/${arch}"
 ref="${image}:${version}-${arch}"
 
@@ -22,5 +24,6 @@ oras push "${ref}" \
 	"${artifact_dir}/lima.yaml:application/x-yaml"
 
 for tag in "$@"; do
+	scripts/validate-version.sh "${tag}" >/dev/null
 	oras tag "${ref}" "${tag}-${arch}"
 done

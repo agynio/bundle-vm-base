@@ -1,12 +1,12 @@
 vmType: qemu
-arch: "{{ARCH}}"
+arch: "{{LIMA_ARCH}}"
 cpus: 4
 memory: 6GiB
 disk: 16GiB
 
 images:
   - location: ./bundle-vm-base-{{ARCH}}.qcow2
-    arch: "{{ARCH}}"
+    arch: "{{LIMA_ARCH}}"
 
 mounts: []
 

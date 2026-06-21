@@ -42,7 +42,8 @@ jq . metadata.json
 ```
 
 The generated `lima.yaml` references the decompressed QCOW2 in the same
-directory.
+directory and maps OCI architecture names to Lima/QEMU architecture names
+(`amd64` to `x86_64`, `arm64` to `aarch64`).
 
 ## Start the VM
 

@@ -13,4 +13,5 @@ package_upgrade: false
 packages:
   - openssh-server
 runcmd:
+  - sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
   - systemctl enable --now ssh

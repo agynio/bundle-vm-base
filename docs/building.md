@@ -13,14 +13,17 @@ architecture as a separate OCI artifact in GHCR:
 Builds are configured for native runners:
 
 - `amd64`: `ubuntu-latest`
-- `arm64`: `ubuntu-24.04-arm`
+- `arm64`: `[self-hosted, linux, arm64, kvm]`
 
-If GitHub-hosted ARM64 runners are not available for the organization, replace
-the arm64 matrix runner with a self-hosted Linux ARM64 runner label, for example:
+The arm64 build requires a self-hosted Linux ARM64 runner with usable `/dev/kvm`
+because the GitHub-hosted ARM64 runner used during PR validation fell back to
+software emulation and timed out waiting for SSH. Register the runner with these
+labels, or update the workflow matrix to match the organization's equivalent
+ARM64 KVM-capable runner labels:
 
 ```yaml
 - arch: arm64
-  runner: [self-hosted, linux, arm64]
+  runner: [self-hosted, linux, arm64, kvm]
 ```
 
 Native builds are preferred because k3s and cluster component provisioning makes

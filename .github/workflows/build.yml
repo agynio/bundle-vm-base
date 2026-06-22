@@ -44,13 +44,8 @@ jobs:
       - name: Static validation
         run: scripts/static-validate.sh
 
-  build:
+  build-amd64:
     needs: static
-    strategy:
-      fail-fast: false
-      matrix:
-        arch:
-          - amd64
     runs-on:
       - self-hosted
       - linux
@@ -88,19 +83,19 @@ jobs:
           test -r /dev/kvm
           test -w /dev/kvm
 
-      - name: Build ${{ matrix.arch }} disk
-        run: scripts/build.sh "${{ matrix.arch }}"
+      - name: Build amd64 disk
+        run: scripts/build.sh amd64
         env:
           QEMU_ACCELERATOR: kvm
 
-      - name: Package ${{ matrix.arch }} artifact
-        run: scripts/package.sh "${{ matrix.arch }}" "${{ steps.version.outputs.version }}"
+      - name: Package amd64 artifact
+        run: scripts/package.sh amd64 "${{ steps.version.outputs.version }}"
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bundle-vm-base-${{ matrix.arch }}
-          path: artifacts/${{ matrix.arch }}
+          name: bundle-vm-base-amd64
+          path: artifacts/amd64
           if-no-files-found: error
 
       - name: Login to GHCR
@@ -115,11 +110,87 @@ jobs:
         if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
         uses: oras-project/setup-oras@v1
 
-      - name: Publish ${{ matrix.arch }} OCI artifact
+      - name: Publish amd64 OCI artifact
         if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
         run: |
           tags=()
           if [ "${GITHUB_REF_NAME}" = "main" ]; then
             tags+=(latest)
           fi
-          scripts/publish.sh "${{ matrix.arch }}" "${{ steps.version.outputs.version }}" "${IMAGE}" "${tags[@]}"
+          scripts/publish.sh amd64 "${{ steps.version.outputs.version }}" "${IMAGE}" "${tags[@]}"
+
+  build-arm64:
+    needs: static
+    if: github.event_name != 'pull_request'
+    runs-on:
+      - self-hosted
+      - linux
+      - arm64
+      - kvm
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="sha-${GITHUB_SHA::12}"
+          fi
+          version="$(scripts/validate-version.sh "${version}")"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system qemu-utils xorriso xz-utils jq
+
+      - name: Install Packer
+        uses: hashicorp/setup-packer@v3
+
+      - name: Verify ARM64 KVM runner
+        run: |
+          test "$(uname -m)" = "aarch64"
+          test -r /dev/kvm
+          test -w /dev/kvm
+
+      - name: Build arm64 disk
+        run: scripts/build.sh arm64
+        env:
+          QEMU_ACCELERATOR: kvm
+
+      - name: Package arm64 artifact
+        run: scripts/package.sh arm64 "${{ steps.version.outputs.version }}"
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-vm-base-arm64
+          path: artifacts/arm64
+          if-no-files-found: error
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install ORAS
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish arm64 OCI artifact
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        run: |
+          tags=()
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            tags+=(latest)
+          fi
+          scripts/publish.sh arm64 "${{ steps.version.outputs.version }}" "${IMAGE}" "${tags[@]}"

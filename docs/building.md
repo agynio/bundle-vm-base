@@ -38,11 +38,12 @@ runs-on:
 Native builds are preferred because k3s and cluster component provisioning makes
 cross-architecture QEMU emulation slow and less reliable.
 
-Pull request workflows do not start the arm64 build, so a missing self-hosted
-runner does not keep the PR workflow queued and block access to amd64 failure
-logs. Run the `build-arm64` workflow manually when the required self-hosted
-runner is available. The amd64 build remains in the main workflow but requires
-the KVM-capable self-hosted AMD64 runner described above.
+Pull request workflows do not start the arm64 build, so a missing ARM64
+self-hosted runner does not block PR diagnostics. The arm64 job is still in the
+main `build` workflow and runs for `main`, tag, and manual workflow dispatch
+runs. Those publish-capable runs build and publish both architecture-specific
+artifacts, with each build targeting its architecture-specific KVM-capable
+self-hosted runner.
 
 ## Local build prerequisites
 

@@ -12,6 +12,11 @@ on:
         required: true
         default: true
         type: boolean
+      run_vm_builds:
+        description: Attempt VM disk builds on GitHub-hosted runners with KVM probe
+        required: true
+        default: false
+        type: boolean
   push:
     branches:
       - main
@@ -46,11 +51,8 @@ jobs:
 
   build-amd64:
     needs: static
-    runs-on:
-      - self-hosted
-      - linux
-      - amd64
-      - kvm
+    if: github.event_name == 'workflow_dispatch' && inputs.run_vm_builds
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
       - name: Checkout
@@ -77,11 +79,20 @@ jobs:
       - name: Install Packer
         uses: hashicorp/setup-packer@v3
 
-      - name: Verify AMD64 KVM runner
+      - name: Verify hosted AMD64 KVM availability
         run: |
-          test "$(uname -m)" = "x86_64"
-          test -r /dev/kvm
-          test -w /dev/kvm
+          if [ "$(uname -m)" != "x86_64" ]; then
+            echo "amd64 VM builds require a GitHub-hosted x86_64 runner; got $(uname -m)." >&2
+            exit 1
+          fi
+          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            echo "KVM is not available on this GitHub-hosted runner." >&2
+            echo "This repository does not support publish builds under non-KVM QEMU." >&2
+            echo "Observed TCG runs timed out during k3s/cert-manager/Argo CD provisioning." >&2
+            echo "Use a hosted/larger runner SKU with /dev/kvm, or add an ephemeral" >&2
+            echo "cloud-builder workflow with credentials supplied by repository secrets." >&2
+            exit 1
+          fi
 
       - name: Build amd64 disk
         run: scripts/build.sh amd64
@@ -99,7 +110,7 @@ jobs:
           if-no-files-found: error
 
       - name: Login to GHCR
-        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        if: inputs.publish
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -107,11 +118,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install ORAS
-        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        if: inputs.publish
         uses: oras-project/setup-oras@v1
 
       - name: Publish amd64 OCI artifact
-        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        if: inputs.publish
         run: |
           tags=()
           if [ "${GITHUB_REF_NAME}" = "main" ]; then
@@ -121,12 +132,8 @@ jobs:
 
   build-arm64:
     needs: static
-    if: github.event_name != 'pull_request'
-    runs-on:
-      - self-hosted
-      - linux
-      - arm64
-      - kvm
+    if: github.event_name == 'workflow_dispatch' && inputs.run_vm_builds
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     steps:
       - name: Checkout
@@ -153,11 +160,20 @@ jobs:
       - name: Install Packer
         uses: hashicorp/setup-packer@v3
 
-      - name: Verify ARM64 KVM runner
+      - name: Verify hosted ARM64 KVM availability
         run: |
-          test "$(uname -m)" = "aarch64"
-          test -r /dev/kvm
-          test -w /dev/kvm
+          if [ "$(uname -m)" != "aarch64" ]; then
+            echo "arm64 VM builds require a GitHub-hosted aarch64 runner; got $(uname -m)." >&2
+            exit 1
+          fi
+          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            echo "KVM is not available on this GitHub-hosted ARM64 runner." >&2
+            echo "This repository does not support publish builds under non-KVM QEMU." >&2
+            echo "Observed TCG runs timed out during k3s/cert-manager/Argo CD provisioning." >&2
+            echo "Use a hosted/larger runner SKU with /dev/kvm, or add an ephemeral" >&2
+            echo "cloud-builder workflow with credentials supplied by repository secrets." >&2
+            exit 1
+          fi
 
       - name: Build arm64 disk
         run: scripts/build.sh arm64
@@ -175,7 +191,7 @@ jobs:
           if-no-files-found: error
 
       - name: Login to GHCR
-        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        if: inputs.publish
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -183,11 +199,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install ORAS
-        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        if: inputs.publish
         uses: oras-project/setup-oras@v1
 
       - name: Publish arm64 OCI artifact
-        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        if: inputs.publish
         run: |
           tags=()
           if [ "${GITHUB_REF_NAME}" = "main" ]; then

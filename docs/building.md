@@ -8,42 +8,50 @@ architecture as a separate OCI artifact in GHCR:
 - `ghcr.io/agynio/bundle-vm-base:latest-amd64` from `main`
 - `ghcr.io/agynio/bundle-vm-base:latest-arm64` from `main`
 
-## Architecture policy
+## Current CI status
 
-Builds are configured for native runners:
+The default GitHub Actions workflow currently performs static validation on
+GitHub-hosted `ubuntu-latest` runners. It does **not** require or target
+self-hosted runners.
 
-- `amd64`: self-hosted Linux AMD64 runner with labels `self-hosted`, `linux`,
-  `amd64`, and `kvm`
-- `arm64`: self-hosted Linux ARM64 runner with labels `self-hosted`, `linux`,
-  `arm64`, and `kvm`
+Actual publish-capable VM disk builds require usable KVM. Standard
+GitHub-hosted runners did not provide a reliable KVM path for this Packer/QEMU
+build, and hosted non-KVM software emulation is unsupported for publish builds:
+observed TCG/software QEMU runs failed or timed out during k3s, cert-manager,
+and Argo CD provisioning.
 
-Static validation stays on GitHub-hosted `ubuntu-latest`, but disk builds run
-only on KVM-capable self-hosted runners. GitHub-hosted Linux runners do not
-provide usable nested KVM for this repository, and TCG/software QEMU has proven
-too slow for reliable k3s, cert-manager, and Argo CD provisioning. The build
-jobs verify the native machine architecture and read/write access to `/dev/kvm`
-before invoking Packer with `QEMU_ACCELERATOR=kvm`.
+Until the repository has either a GitHub-hosted/larger runner SKU with usable
+`/dev/kvm` for both amd64 and arm64, or credentials for an ephemeral cloud
+builder implementation, normal `main`/tag CI is intentionally limited to static
+validation and does not claim to publish complete VM disk artifacts.
 
-Register appropriate self-hosted runners, or update the workflow `runs-on`
-labels to match the organization's equivalent KVM-capable runner labels:
+## Hosted KVM build scaffold
 
-```yaml
-runs-on:
-  - self-hosted
-  - linux
-  - amd64 # or arm64
-  - kvm
-```
+The `build` workflow includes a manual `workflow_dispatch` input named
+`run_vm_builds`. When set to `true`, the workflow attempts amd64 and arm64 VM
+builds on GitHub-hosted runner labels and probes `/dev/kvm` before invoking
+Packer:
 
-Native builds are preferred because k3s and cluster component provisioning makes
-cross-architecture QEMU emulation slow and less reliable.
+- `build-amd64`: `ubuntu-latest`, requires `uname -m == x86_64` and readable /
+  writable `/dev/kvm`.
+- `build-arm64`: `ubuntu-24.04-arm`, requires `uname -m == aarch64` and readable
+  / writable `/dev/kvm`.
 
-Pull request workflows do not start the arm64 build, so a missing ARM64
-self-hosted runner does not block PR diagnostics. The arm64 job is still in the
-main `build` workflow and runs for `main`, tag, and manual workflow dispatch
-runs. Those publish-capable runs build and publish both architecture-specific
-artifacts, with each build targeting its architecture-specific KVM-capable
-self-hosted runner.
+If KVM is unavailable, the job fails before the expensive build with a clear
+message. The workflow does not fall back to non-KVM QEMU for publish builds.
+
+## TODO for publish-capable CI
+
+Choose one of these before enabling automatic publish builds on `main` and tags:
+
+1. Use GitHub-hosted or larger runner labels that provide usable `/dev/kvm` for
+   both amd64 and arm64, then enable the build jobs for push/tag events.
+2. Add an ephemeral cloud-builder workflow: GitHub Actions creates temporary
+   amd64 and arm64 cloud VMs with KVM, runs the build and publish commands on
+   them, and destroys the VMs afterward. This requires cloud credentials or OIDC
+   role setup that is not present in this PR.
+
+Persistent self-hosted runners are not a required or documented primary path.
 
 ## Local build prerequisites
 
@@ -76,11 +84,10 @@ scripts/package.sh amd64 dev
 
 `scripts/build.sh` defaults to `QEMU_ACCELERATOR=auto`, which selects `kvm` only
 when `/dev/kvm` is readable and writable, and otherwise selects `none`. Set
-`QEMU_ACCELERATOR=kvm` to force hardware acceleration. CI forces
-`QEMU_ACCELERATOR=kvm` for image builds; software acceleration is only for local
-experimentation and is not a supported publish path.
+`QEMU_ACCELERATOR=kvm` to force hardware acceleration. Software acceleration is
+only for local experimentation and is not a supported publish path.
 
-For arm64, run the same commands on an ARM64 host:
+For arm64, run the same commands on an ARM64 host with KVM:
 
 ```sh
 scripts/build.sh arm64

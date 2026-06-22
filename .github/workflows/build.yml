@@ -12,11 +12,6 @@ on:
         required: true
         default: true
         type: boolean
-      run_vm_builds:
-        description: Attempt VM disk builds on GitHub-hosted runners with KVM probe
-        required: true
-        default: false
-        type: boolean
   push:
     branches:
       - main
@@ -51,7 +46,6 @@ jobs:
 
   build-amd64:
     needs: static
-    if: github.event_name == 'workflow_dispatch' && inputs.run_vm_builds
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -79,25 +73,35 @@ jobs:
       - name: Install Packer
         uses: hashicorp/setup-packer@v3
 
-      - name: Verify hosted AMD64 KVM availability
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Select KVM accelerator
+        id: qemu
         run: |
           if [ "$(uname -m)" != "x86_64" ]; then
             echo "amd64 VM builds require a GitHub-hosted x86_64 runner; got $(uname -m)." >&2
             exit 1
           fi
-          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+          accelerator="$(scripts/select-qemu-accelerator.sh)"
+          if [ "${accelerator}" != "kvm" ]; then
             echo "KVM is not available on this GitHub-hosted runner." >&2
             echo "This repository does not support publish builds under non-KVM QEMU." >&2
             echo "Observed TCG runs timed out during k3s/cert-manager/Argo CD provisioning." >&2
-            echo "Use a hosted/larger runner SKU with /dev/kvm, or add an ephemeral" >&2
-            echo "cloud-builder workflow with credentials supplied by repository secrets." >&2
+            echo "Use a GitHub-hosted/larger runner SKU with usable /dev/kvm." >&2
             exit 1
           fi
+          echo "accelerator=${accelerator}" >> "${GITHUB_OUTPUT}"
+          echo "QEMU accelerator: ${accelerator}"
 
       - name: Build amd64 disk
         run: scripts/build.sh amd64
         env:
-          QEMU_ACCELERATOR: kvm
+          QEMU_ACCELERATOR: ${{ steps.qemu.outputs.accelerator }}
 
       - name: Package amd64 artifact
         run: scripts/package.sh amd64 "${{ steps.version.outputs.version }}"
@@ -132,7 +136,6 @@ jobs:
 
   build-arm64:
     needs: static
-    if: github.event_name == 'workflow_dispatch' && inputs.run_vm_builds
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     steps:
@@ -160,25 +163,35 @@ jobs:
       - name: Install Packer
         uses: hashicorp/setup-packer@v3
 
-      - name: Verify hosted ARM64 KVM availability
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Select KVM accelerator
+        id: qemu
         run: |
           if [ "$(uname -m)" != "aarch64" ]; then
             echo "arm64 VM builds require a GitHub-hosted aarch64 runner; got $(uname -m)." >&2
             exit 1
           fi
-          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+          accelerator="$(scripts/select-qemu-accelerator.sh)"
+          if [ "${accelerator}" != "kvm" ]; then
             echo "KVM is not available on this GitHub-hosted ARM64 runner." >&2
             echo "This repository does not support publish builds under non-KVM QEMU." >&2
             echo "Observed TCG runs timed out during k3s/cert-manager/Argo CD provisioning." >&2
-            echo "Use a hosted/larger runner SKU with /dev/kvm, or add an ephemeral" >&2
-            echo "cloud-builder workflow with credentials supplied by repository secrets." >&2
+            echo "Hosted arm64 KVM availability is the remaining blocker for arm64 publish builds." >&2
             exit 1
           fi
+          echo "accelerator=${accelerator}" >> "${GITHUB_OUTPUT}"
+          echo "QEMU accelerator: ${accelerator}"
 
       - name: Build arm64 disk
         run: scripts/build.sh arm64
         env:
-          QEMU_ACCELERATOR: kvm
+          QEMU_ACCELERATOR: ${{ steps.qemu.outputs.accelerator }}
 
       - name: Package arm64 artifact
         run: scripts/package.sh arm64 "${{ steps.version.outputs.version }}"

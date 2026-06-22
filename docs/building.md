@@ -8,50 +8,42 @@ architecture as a separate OCI artifact in GHCR:
 - `ghcr.io/agynio/bundle-vm-base:latest-amd64` from `main`
 - `ghcr.io/agynio/bundle-vm-base:latest-arm64` from `main`
 
-## Current CI status
+## CI runner policy
 
-The default GitHub Actions workflow currently performs static validation on
-GitHub-hosted `ubuntu-latest` runners. It does **not** require or target
-self-hosted runners.
+The default GitHub Actions workflow uses GitHub-hosted Linux runners. It does
+not require self-hosted runners.
 
-Actual publish-capable VM disk builds require usable KVM. Standard
-GitHub-hosted runners did not provide a reliable KVM path for this Packer/QEMU
-build, and hosted non-KVM software emulation is unsupported for publish builds:
-observed TCG/software QEMU runs failed or timed out during k3s, cert-manager,
-and Argo CD provisioning.
+Static validation runs on `ubuntu-latest`. VM disk builds also run on
+GitHub-hosted Linux runners and explicitly enable KVM access before invoking
+Packer. The workflow uses the udev rule recommended by GitHub's Linux hosted
+runner hardware-acceleration documentation:
 
-Until the repository has either a GitHub-hosted/larger runner SKU with usable
-`/dev/kvm` for both amd64 and arm64, or credentials for an ephemeral cloud
-builder implementation, normal `main`/tag CI is intentionally limited to static
-validation and does not claim to publish complete VM disk artifacts.
+```sh
+echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --name-match=kvm
+```
 
-## Hosted KVM build scaffold
+After that step, each build job probes `/dev/kvm` via
+`scripts/select-qemu-accelerator.sh` and proceeds only when the selected
+accelerator is `kvm`:
 
-The `build` workflow includes a manual `workflow_dispatch` input named
-`run_vm_builds`. When set to `true`, the workflow attempts amd64 and arm64 VM
-builds on GitHub-hosted runner labels and probes `/dev/kvm` before invoking
-Packer:
+- `build-amd64`: `ubuntu-latest`, requires `uname -m == x86_64` and usable
+  `/dev/kvm`.
+- `build-arm64`: `ubuntu-24.04-arm`, requires `uname -m == aarch64` and usable
+  `/dev/kvm`.
 
-- `build-amd64`: `ubuntu-latest`, requires `uname -m == x86_64` and readable /
-  writable `/dev/kvm`.
-- `build-arm64`: `ubuntu-24.04-arm`, requires `uname -m == aarch64` and readable
-  / writable `/dev/kvm`.
+Hosted/non-KVM software emulation is unsupported for publish builds. TCG QEMU
+runs were observed to fail or time out during k3s, cert-manager, and Argo CD
+provisioning. If `/dev/kvm` is unavailable on a runner, the job fails fast with
+a clear message instead of falling back to `QEMU_ACCELERATOR=none`.
 
-If KVM is unavailable, the job fails before the expensive build with a clear
-message. The workflow does not fall back to non-KVM QEMU for publish builds.
-
-## TODO for publish-capable CI
-
-Choose one of these before enabling automatic publish builds on `main` and tags:
-
-1. Use GitHub-hosted or larger runner labels that provide usable `/dev/kvm` for
-   both amd64 and arm64, then enable the build jobs for push/tag events.
-2. Add an ephemeral cloud-builder workflow: GitHub Actions creates temporary
-   amd64 and arm64 cloud VMs with KVM, runs the build and publish commands on
-   them, and destroys the VMs afterward. This requires cloud credentials or OIDC
-   role setup that is not present in this PR.
-
-Persistent self-hosted runners are not a required or documented primary path.
+If GitHub-hosted ARM64 runners do not expose usable `/dev/kvm`, hosted arm64 KVM
+availability is the remaining blocker for arm64 publish builds. The next
+acceptable alternative is an ephemeral cloud-builder workflow that creates
+temporary amd64 and arm64 cloud VMs with KVM, runs the build and publish commands
+on them, and destroys the VMs afterward. That requires cloud credentials or OIDC
+role setup and is not implemented in this PR.
 
 ## Local build prerequisites
 

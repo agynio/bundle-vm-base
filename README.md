@@ -50,7 +50,7 @@ scripts/build.sh amd64
 scripts/package.sh amd64 dev
 ```
 
-Use `arm64` on a native ARM64 host. Publish builds require KVM; hosted non-KVM
-QEMU is unsupported for this image because k3s component provisioning timed out
-in CI. See [building docs](docs/building.md) for the current CI scaffold and
-blockers.
+Use `arm64` on a native ARM64 host. Publish builds require KVM; the GitHub
+Actions workflow enables and probes `/dev/kvm` on hosted Linux runners and fails
+fast instead of falling back to non-KVM QEMU. See
+[building docs](docs/building.md) for details.

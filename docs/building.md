@@ -11,7 +11,7 @@ architecture as a separate OCI artifact in GHCR:
 ## CI runner policy
 
 The default GitHub Actions workflow uses GitHub-hosted Linux runners. It does
-not require self-hosted runners.
+not require persistent self-hosted runners.
 
 Static validation runs on `ubuntu-latest`. VM disk builds also run on
 GitHub-hosted Linux runners and explicitly enable KVM access before invoking
@@ -34,21 +34,37 @@ After that step, each build job probes `/dev/kvm` via
 accelerator is `kvm`:
 
 - `build-amd64`: `ubuntu-latest`, requires `uname -m == x86_64` and usable
-  `/dev/kvm`.
-- `build-arm64`: `ubuntu-24.04-arm`, requires `uname -m == aarch64` and usable
-  `/dev/kvm`.
+  `/dev/kvm`. This path has completed successfully in PR CI.
+- `build-arm64`: defaults to `ubuntu-24.04-arm`, requires
+  `uname -m == aarch64` and usable `/dev/kvm`.
 
 Hosted/non-KVM software emulation is unsupported for publish builds. TCG QEMU
 runs were observed to fail or time out during k3s, cert-manager, and Argo CD
 provisioning. If `/dev/kvm` is unavailable on a runner, the job fails fast with
 a clear message instead of falling back to `QEMU_ACCELERATOR=none`.
 
-If GitHub-hosted ARM64 runners do not expose usable `/dev/kvm`, hosted arm64 KVM
-availability is the remaining blocker for arm64 publish builds. The next
-acceptable alternative is an ephemeral cloud-builder workflow that creates
-temporary amd64 and arm64 cloud VMs with KVM, runs the build and publish commands
-on them, and destroys the VMs afterward. That requires cloud credentials or OIDC
-role setup and is not implemented in this PR.
+GitHub-hosted ARM64 runner investigation for this PR found that
+`ubuntu-24.04-arm` starts on `aarch64`, but `/dev/kvm` is not available after
+the official KVM udev rule in this repository. The workflow supports overriding
+the ARM64 runner label with the `ARM64_KVM_RUNNER` repository variable so an
+organization-provided GitHub-hosted larger ARM64 runner can be tried without
+changing workflow code. The selected runner still must expose usable `/dev/kvm`;
+otherwise the job fails fast.
+
+If no GitHub-provided ARM64 runner SKU with KVM is available to this repository,
+the remaining non-self-hosted path is an ephemeral cloud-builder workflow: GitHub
+Actions launches a temporary ARM64 cloud VM with KVM using OIDC, runs the build
+and publish commands there, uploads logs/artifacts, and destroys the VM. See
+`scripts/cloud-builders/README.md` for the proposed implementation path. This PR
+does not claim issue #1 is complete until either a KVM-capable GitHub-provided
+ARM64 runner is configured or an ephemeral cloud-builder provider is selected and
+implemented.
+
+## Publishing policy
+
+Pull requests build and upload workflow artifacts but do not publish to GHCR.
+Pushes to `main` and `v*` tags publish to GHCR. Manual `workflow_dispatch` runs
+publish by default and can opt out with the `publish` input.
 
 ## Local build prerequisites
 
@@ -124,5 +140,5 @@ periods, and hyphens.
 The base image must not include Agyn production, staging, external service, or
 developer credentials. Local-only credentials created by Lima or cloud-init are
 for VM access only and must not grant access to non-local Agyn infrastructure.
-The temporary Packer build user is removed during image cleanup, and password
-SSH authentication is disabled in the final disk.
+The temporary Packer build user is removed during image finalization, and
+password SSH authentication is disabled in the final disk.

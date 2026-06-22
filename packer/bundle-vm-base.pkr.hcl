@@ -99,7 +99,8 @@ source "qemu" "ubuntu_cloud" {
   output_directory       = "output/${var.arch}"
   qemu_binary            = "qemu-system-${local.qemu_arch}"
   qemuargs               = local.qemuargs
-  shutdown_command       = "sudo cloud-init clean --logs && sudo shutdown -P now"
+  shutdown_command       = "cloud-init clean --logs && shutdown -P now"
+  shutdown_timeout       = "10m"
   ssh_handshake_attempts = 120
   ssh_password           = "packer"
   ssh_timeout            = "30m"

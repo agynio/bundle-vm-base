@@ -4,7 +4,8 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 if id packer >/dev/null 2>&1; then
-	deluser --remove-home packer
+	pkill -KILL -u packer || true
+	userdel --force --remove packer
 fi
 
 passwd -l root

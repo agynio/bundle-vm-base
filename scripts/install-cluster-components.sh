@@ -5,6 +5,7 @@ export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 K3S_KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 COMPONENT_ROLLOUT_TIMEOUT=900s
 IMAGE_PULL_TIMEOUT=1800
+MANIFEST_APPLY_TIMEOUT=900
 COMPONENT_IMAGES=(
 	"quay.io/jetstack/cert-manager-controller:${CERT_MANAGER_VERSION}"
 	"quay.io/jetstack/cert-manager-cainjector:${CERT_MANAGER_VERSION}"
@@ -104,6 +105,30 @@ pre_pull_component_images() {
 
 pre_pull_component_images
 
+apply_remote_manifest() {
+	manifest_url="${1}"
+	shift
+	deadline=$((SECONDS + MANIFEST_APPLY_TIMEOUT))
+
+	# Pinned release manifests are applied without OpenAPI validation because
+	# discovery calls can TLS-timeout against the slow local API under TCG QEMU.
+	echo "[component manifests] applying ${manifest_url}"
+	while [ "${SECONDS}" -lt "${deadline}" ]; do
+		if kubectl apply --validate=false "$@" -f "${manifest_url}"; then
+			echo "[component manifests] applied ${manifest_url}"
+			return 0
+		fi
+
+		echo "[component manifests] retrying ${manifest_url} after failed apply" >&2
+		kubectl --kubeconfig="${K3S_KUBECONFIG}" get --raw=/readyz >/dev/null 2>&1 || true
+		sleep 15
+	done
+
+	dump_k3s_diagnostics
+	echo "timed out applying manifest ${manifest_url}" >&2
+	return 1
+}
+
 dump_namespace_diagnostics() {
 	namespace="${1}"
 
@@ -135,13 +160,13 @@ wait_for_deployment_rollout() {
 	return 1
 }
 
-kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
+apply_remote_manifest "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
 wait_for_deployment_rollout cert-manager cert-manager "${COMPONENT_ROLLOUT_TIMEOUT}"
 wait_for_deployment_rollout cert-manager cert-manager-cainjector "${COMPONENT_ROLLOUT_TIMEOUT}"
 wait_for_deployment_rollout cert-manager cert-manager-webhook "${COMPONENT_ROLLOUT_TIMEOUT}"
 
-kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -n argocd -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply --validate=false -f -
+apply_remote_manifest "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml" -n argocd
 wait_for_deployment_rollout argocd argocd-applicationset-controller "${COMPONENT_ROLLOUT_TIMEOUT}"
 wait_for_deployment_rollout argocd argocd-dex-server "${COMPONENT_ROLLOUT_TIMEOUT}"
 wait_for_deployment_rollout argocd argocd-notifications-controller "${COMPONENT_ROLLOUT_TIMEOUT}"

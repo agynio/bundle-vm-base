@@ -22,7 +22,11 @@ env:
 
 jobs:
   build-arm64:
-    runs-on: self-hosted
+    runs-on:
+      - self-hosted
+      - linux
+      - arm64
+      - kvm
     timeout-minutes: 360
     steps:
       - name: Checkout

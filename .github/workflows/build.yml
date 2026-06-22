@@ -51,7 +51,11 @@ jobs:
       matrix:
         arch:
           - amd64
-    runs-on: ubuntu-latest
+    runs-on:
+      - self-hosted
+      - linux
+      - amd64
+      - kvm
     timeout-minutes: 360
     steps:
       - name: Checkout
@@ -78,17 +82,16 @@ jobs:
       - name: Install Packer
         uses: hashicorp/setup-packer@v3
 
-      - name: Select QEMU accelerator
-        id: qemu
+      - name: Verify AMD64 KVM runner
         run: |
-          accelerator="$(scripts/select-qemu-accelerator.sh)"
-          echo "accelerator=${accelerator}" >> "${GITHUB_OUTPUT}"
-          echo "QEMU accelerator: ${accelerator}"
+          test "$(uname -m)" = "x86_64"
+          test -r /dev/kvm
+          test -w /dev/kvm
 
       - name: Build ${{ matrix.arch }} disk
         run: scripts/build.sh "${{ matrix.arch }}"
         env:
-          QEMU_ACCELERATOR: ${{ steps.qemu.outputs.accelerator }}
+          QEMU_ACCELERATOR: kvm
 
       - name: Package ${{ matrix.arch }} artifact
         run: scripts/package.sh "${{ matrix.arch }}" "${{ steps.version.outputs.version }}"

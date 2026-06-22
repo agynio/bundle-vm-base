@@ -3,6 +3,8 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
+cloud-init clean --logs --seed
+
 if getent passwd packer >/dev/null; then
 	sed -i "/^packer:/d" /etc/passwd /etc/shadow /etc/group /etc/gshadow
 	rm -rf /home/packer
@@ -23,5 +25,3 @@ rm -rf /var/lib/apt/lists/*
 truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id
 ln -sf /etc/machine-id /var/lib/dbus/machine-id
-
-cloud-init clean --logs --seed

@@ -1,21 +1,63 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+K3S_KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+log_k3s_readiness() {
+	printf '[k3s readiness] %s\n' "$*"
+}
+
+dump_k3s_diagnostics() {
+	systemctl status k3s --no-pager || true
+	journalctl -u k3s --no-pager -n 100 || true
+}
+
 wait_for_k3s() {
 	timeout_seconds="${1}"
 	deadline=$((SECONDS + timeout_seconds))
 
+	log_k3s_readiness "waiting for k3s service and API /readyz"
 	while [ "${SECONDS}" -lt "${deadline}" ]; do
-		if systemctl is-active --quiet k3s && kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw=/readyz >/dev/null 2>&1; then
-			kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml wait --for=condition=Ready nodes --all --timeout=180s
+		if systemctl is-active --quiet k3s && kubectl --kubeconfig="${K3S_KUBECONFIG}" get --raw=/readyz >/dev/null 2>&1; then
+			log_k3s_readiness "k3s API /readyz is available"
+			break
+		fi
+		sleep 5
+	done
+
+	if [ "${SECONDS}" -ge "${deadline}" ]; then
+		dump_k3s_diagnostics
+		echo "timed out waiting for k3s service and API /readyz" >&2
+		return 1
+	fi
+
+	log_k3s_readiness "waiting for node registration"
+	while [ "${SECONDS}" -lt "${deadline}" ]; do
+		node_names="$(kubectl --kubeconfig="${K3S_KUBECONFIG}" get nodes -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
+		if [ -n "${node_names}" ]; then
+			log_k3s_readiness "registered nodes: ${node_names}"
+			break
+		fi
+		sleep 5
+	done
+
+	if [ "${SECONDS}" -ge "${deadline}" ]; then
+		dump_k3s_diagnostics
+		echo "timed out waiting for k3s node registration" >&2
+		return 1
+	fi
+
+	log_k3s_readiness "waiting for registered nodes to become Ready"
+	while [ "${SECONDS}" -lt "${deadline}" ]; do
+		if kubectl --kubeconfig="${K3S_KUBECONFIG}" wait --for=condition=Ready nodes --all --timeout=30s; then
+			log_k3s_readiness "all registered nodes are Ready"
 			return 0
 		fi
 		sleep 5
 	done
 
-	systemctl status k3s --no-pager || true
-	journalctl -u k3s --no-pager -n 100 || true
-	echo "timed out waiting for k3s API readiness" >&2
+	dump_k3s_diagnostics
+	echo "timed out waiting for k3s nodes to become Ready" >&2
 	return 1
 }
 

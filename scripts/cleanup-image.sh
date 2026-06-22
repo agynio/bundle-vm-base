@@ -3,9 +3,9 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
-if id packer >/dev/null 2>&1; then
-	pkill -KILL -u packer || true
-	userdel --force --remove packer
+if getent passwd packer >/dev/null; then
+	sed -i "/^packer:/d" /etc/passwd /etc/shadow /etc/group /etc/gshadow
+	rm -rf /home/packer
 fi
 
 passwd -l root

@@ -3,7 +3,23 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
+wait_for_cloud_init() {
+	if command -v cloud-init >/dev/null 2>&1; then
+		cloud-init status --wait
+	fi
+}
+
+wait_for_apt() {
+	while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; do
+		echo "waiting for apt/dpkg locks to be released"
+		sleep 5
+	done
+}
+
+wait_for_cloud_init
+wait_for_apt
 apt-get update
+wait_for_apt
 apt-get install -y --no-install-recommends \
 	apt-transport-https \
 	bash-completion \

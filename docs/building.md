@@ -24,6 +24,11 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger --name-match=kvm
 ```
 
+On hosted runners where triggering the `kvm` device rule itself reports that the
+device is unavailable, the workflow continues to the explicit accelerator probe
+so the job fails with the repository's publish-build message instead of a raw
+udev error.
+
 After that step, each build job probes `/dev/kvm` via
 `scripts/select-qemu-accelerator.sh` and proceeds only when the selected
 accelerator is `kvm`:

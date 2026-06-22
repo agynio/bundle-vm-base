@@ -3,6 +3,7 @@ set -euo pipefail
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 K3S_KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+COMPONENT_ROLLOUT_TIMEOUT=900s
 
 log_k3s_readiness() {
 	printf '[k3s readiness] %s\n' "$*"
@@ -64,19 +65,50 @@ wait_for_k3s() {
 
 wait_for_k3s 600
 
+dump_namespace_diagnostics() {
+	namespace="${1}"
+
+	echo "[component diagnostics] namespace=${namespace}: pods"
+	kubectl -n "${namespace}" get pods -o wide || true
+	echo "[component diagnostics] namespace=${namespace}: deployments"
+	kubectl -n "${namespace}" get deployments -o wide || true
+	echo "[component diagnostics] namespace=${namespace}: deployment descriptions"
+	kubectl -n "${namespace}" describe deployments || true
+	echo "[component diagnostics] namespace=${namespace}: pod descriptions"
+	kubectl -n "${namespace}" describe pods || true
+	echo "[component diagnostics] namespace=${namespace}: recent events"
+	kubectl -n "${namespace}" get events --sort-by=.lastTimestamp || true
+}
+
+wait_for_deployment_rollout() {
+	namespace="${1}"
+	deployment="${2}"
+	timeout="${3}"
+
+	echo "[component readiness] waiting for deployment ${namespace}/${deployment} rollout (${timeout})"
+	if kubectl -n "${namespace}" rollout status "deploy/${deployment}" --timeout="${timeout}"; then
+		echo "[component readiness] deployment ${namespace}/${deployment} is available"
+		return 0
+	fi
+
+	dump_namespace_diagnostics "${namespace}"
+	echo "timed out waiting for deployment ${namespace}/${deployment}" >&2
+	return 1
+}
+
 kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
-kubectl -n cert-manager rollout status deploy/cert-manager --timeout=300s
-kubectl -n cert-manager rollout status deploy/cert-manager-cainjector --timeout=300s
-kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=300s
+wait_for_deployment_rollout cert-manager cert-manager "${COMPONENT_ROLLOUT_TIMEOUT}"
+wait_for_deployment_rollout cert-manager cert-manager-cainjector "${COMPONENT_ROLLOUT_TIMEOUT}"
+wait_for_deployment_rollout cert-manager cert-manager-webhook "${COMPONENT_ROLLOUT_TIMEOUT}"
 
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -n argocd -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
-kubectl -n argocd rollout status deploy/argocd-applicationset-controller --timeout=300s
-kubectl -n argocd rollout status deploy/argocd-dex-server --timeout=300s
-kubectl -n argocd rollout status deploy/argocd-notifications-controller --timeout=300s
-kubectl -n argocd rollout status deploy/argocd-redis --timeout=300s
-kubectl -n argocd rollout status deploy/argocd-repo-server --timeout=300s
-kubectl -n argocd rollout status deploy/argocd-server --timeout=300s
+wait_for_deployment_rollout argocd argocd-applicationset-controller "${COMPONENT_ROLLOUT_TIMEOUT}"
+wait_for_deployment_rollout argocd argocd-dex-server "${COMPONENT_ROLLOUT_TIMEOUT}"
+wait_for_deployment_rollout argocd argocd-notifications-controller "${COMPONENT_ROLLOUT_TIMEOUT}"
+wait_for_deployment_rollout argocd argocd-redis "${COMPONENT_ROLLOUT_TIMEOUT}"
+wait_for_deployment_rollout argocd argocd-repo-server "${COMPONENT_ROLLOUT_TIMEOUT}"
+wait_for_deployment_rollout argocd argocd-server "${COMPONENT_ROLLOUT_TIMEOUT}"
 
 cat >/etc/agyn/components.json <<EOF
 {

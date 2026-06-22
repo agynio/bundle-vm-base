@@ -99,7 +99,7 @@ source "qemu" "ubuntu_cloud" {
   output_directory       = "output/${var.arch}"
   qemu_binary            = "qemu-system-${local.qemu_arch}"
   qemuargs               = local.qemuargs
-  shutdown_command       = "sudo shutdown -P now"
+  shutdown_command       = "sudo /usr/local/sbin/agyn-finalize-shutdown"
   shutdown_timeout       = "10m"
   ssh_handshake_attempts = 120
   ssh_password           = "packer"

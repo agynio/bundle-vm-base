@@ -3,6 +3,8 @@ set -euo pipefail
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
+scripts/wait-for-k3s.sh 600
+
 kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
 kubectl -n cert-manager rollout status deploy/cert-manager --timeout=300s
 kubectl -n cert-manager rollout status deploy/cert-manager-cainjector --timeout=300s

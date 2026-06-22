@@ -6,6 +6,8 @@ curl -sfL https://get.k3s.io |
 		INSTALL_K3S_EXEC="server --disable traefik --disable servicelb --write-kubeconfig-mode 0644 --node-name bundle-vm-base" \
 		sh -
 
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
 install -d -m 0755 /root/.kube
 cp /etc/rancher/k3s/k3s.yaml /root/.kube/config
 
@@ -19,4 +21,4 @@ cat >/etc/profile.d/agyn-kubeconfig.sh <<'EOF'
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 EOF
 
-kubectl wait --for=condition=Ready nodes --all --timeout=180s
+scripts/wait-for-k3s.sh 600

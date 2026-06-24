@@ -5,6 +5,7 @@ arch="${1:-amd64}"
 accelerator="$(scripts/select-qemu-accelerator.sh)"
 efi_firmware_code="${PACKER_EFI_FIRMWARE_CODE:-}"
 efi_firmware_vars="${PACKER_EFI_FIRMWARE_VARS:-}"
+ssh_key_dir=""
 
 case "${arch}" in
 amd64 | arm64) ;;
@@ -183,12 +184,29 @@ validate_qemu_boot_path() {
 	fi
 }
 
+cleanup_build_ssh_key() {
+	if [ -n "${ssh_key_dir}" ]; then
+		rm -rf "${ssh_key_dir}"
+	fi
+}
+
+create_build_ssh_key() {
+	ssh_key_dir="$(mktemp -d "${TMPDIR:-/tmp}/bundle-vm-base-ssh.XXXXXX")"
+	trap cleanup_build_ssh_key EXIT
+	ssh_private_key_file="${ssh_key_dir}/packer_ed25519"
+	ssh_public_key_file="${ssh_private_key_file}.pub"
+
+	ssh-keygen -q -t ed25519 -N '' -C bundle-vm-base-packer -f "${ssh_private_key_file}"
+	ssh_public_key="$(cat "${ssh_public_key_file}")"
+}
+
 set -a
 # shellcheck source=versions.env
 source versions.env
 set +a
 
 validate_qemu_boot_path
+create_build_ssh_key
 
 echo "Using QEMU accelerator: ${accelerator}"
 if [ "${arch}" = "arm64" ]; then
@@ -212,5 +230,7 @@ packer init packer
 		-var "qemu_accelerator=${accelerator}" \
 		-var "efi_firmware_code=${efi_firmware_code}" \
 		-var "efi_firmware_vars=${efi_firmware_vars}" \
+		-var "ssh_private_key_file=${ssh_private_key_file}" \
+		-var "ssh_public_key=${ssh_public_key}" \
 		.
 )

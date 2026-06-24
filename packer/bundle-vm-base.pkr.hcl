@@ -71,6 +71,14 @@ variable "efi_firmware_vars" {
   default = ""
 }
 
+variable "ssh_private_key_file" {
+  type = string
+}
+
+variable "ssh_public_key" {
+  type = string
+}
+
 locals {
   ubuntu_arch = var.arch == "amd64" ? "amd64" : "arm64"
   qemu_arch   = var.arch == "amd64" ? "x86_64" : "aarch64"
@@ -93,7 +101,9 @@ source "qemu" "ubuntu_cloud" {
   boot_wait   = "2s"
   cd_content = {
     "meta-data" = "instance-id: bundle-vm-base-${var.arch}\nlocal-hostname: bundle-vm-base\n"
-    "user-data" = templatefile("cloud-init.pkrtpl.hcl", {})
+    "user-data" = templatefile("cloud-init.pkrtpl.hcl", {
+      ssh_public_key = var.ssh_public_key
+    })
   }
   cd_label               = "cidata"
   cpus                   = 2
@@ -117,7 +127,7 @@ source "qemu" "ubuntu_cloud" {
   shutdown_command       = "sudo /usr/local/sbin/agyn-finalize-shutdown"
   shutdown_timeout       = "10m"
   ssh_handshake_attempts = 120
-  ssh_password           = "packer"
+  ssh_private_key_file   = var.ssh_private_key_file
   ssh_timeout            = "30m"
   ssh_username           = "packer"
   vm_name                = "bundle-vm-base-${var.arch}.qcow2"

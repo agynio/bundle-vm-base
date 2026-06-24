@@ -22,6 +22,17 @@ if command -v packer >/dev/null 2>&1; then
 			-var helm_version=v0.0.0 \
 			-var kubectl_version=v0.0.0 \
 			.
+		packer validate \
+			-var arch=arm64 \
+			-var qemu_accelerator=hvf \
+			-var efi_firmware_code=/tmp/edk2-aarch64-code.fd \
+			-var efi_firmware_vars=/tmp/edk2-arm-vars.fd \
+			-var k3s_version=v0.0.0 \
+			-var cert_manager_version=v0.0.0 \
+			-var argocd_version=v0.0.0 \
+			-var helm_version=v0.0.0 \
+			-var kubectl_version=v0.0.0 \
+			.
 	)
 fi
 

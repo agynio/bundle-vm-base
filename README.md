@@ -50,9 +50,17 @@ scripts/build.sh amd64
 scripts/package.sh amd64 dev
 ```
 
-Use `arm64` on a native ARM64 host. Apple Silicon Macs use QEMU HVF, and Linux
-publish runners must provide KVM. PR checks run the amd64 VM build and keep the
-arm64 VM build opt-in so CI stays honest when the default hosted ARM64 Linux
-runner has no acceleration. Push/tag publishing remains wired to build both
-architectures on an accelerated ARM64 runner selected by repository variable.
-See [building docs](docs/building.md) for details.
+Use `arm64` on a native ARM64 host. Apple Silicon Macs use QEMU HVF with an
+explicit ARM64 UEFI firmware path resolved from the QEMU installation, and Linux
+publish runners must provide KVM. To validate the macOS path directly, run:
+
+```sh
+QEMU_ACCELERATOR=hvf scripts/build.sh arm64
+scripts/package.sh arm64 dev
+```
+
+PR checks run the amd64 VM build and keep the arm64 VM build opt-in so CI stays
+honest when the default hosted ARM64 Linux runner has no acceleration. Push/tag
+publishing remains wired to build both architectures on an accelerated ARM64
+runner selected by repository variable. See [building docs](docs/building.md)
+for details and macOS prerequisites.

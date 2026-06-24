@@ -61,6 +61,16 @@ variable "qemu_accelerator" {
   }
 }
 
+variable "efi_firmware_code" {
+  type    = string
+  default = ""
+}
+
+variable "efi_firmware_vars" {
+  type    = string
+  default = ""
+}
+
 locals {
   ubuntu_arch = var.arch == "amd64" ? "amd64" : "arm64"
   qemu_arch   = var.arch == "amd64" ? "x86_64" : "aarch64"
@@ -70,6 +80,7 @@ locals {
   sha_url     = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/SHA256SUMS"
   qemuargs = var.arch == "arm64" ? [
     ["-cpu", local.cpu],
+    ["-boot", "strict=off"],
     ["-device", "virtio-gpu-pci"],
     ["-device", "qemu-xhci"],
     ] : [
@@ -89,6 +100,10 @@ source "qemu" "ubuntu_cloud" {
   disk_compression       = false
   disk_image             = true
   disk_size              = var.disk_size
+  efi_boot               = var.arch == "arm64"
+  efi_drop_efivars       = true
+  efi_firmware_code      = var.efi_firmware_code
+  efi_firmware_vars      = var.efi_firmware_vars
   format                 = "qcow2"
   headless               = true
   iso_checksum           = "file:${local.sha_url}"

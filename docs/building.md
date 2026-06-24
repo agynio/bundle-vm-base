@@ -62,12 +62,44 @@ Manual `workflow_dispatch` runs publish by default and can opt out with the
 
 ## Local build prerequisites
 
-- Linux host with KVM enabled.
 - Packer 1.10 or newer.
 - QEMU system packages.
 - `xz`, `jq`, and `sha256sum`.
 - Network access to Ubuntu cloud images, k3s, Kubernetes, Helm, cert-manager,
   and Argo CD release assets.
+
+Use a native host for the target architecture. Linux builds use KVM when
+`/dev/kvm` is readable and writable. Apple Silicon builds use QEMU HVF and
+must run on macOS ARM64.
+
+### Apple Silicon macOS prerequisites
+
+Install the local build tools with Homebrew:
+
+```sh
+brew install packer qemu xorriso xz jq
+```
+
+The arm64 Ubuntu cloud image boots through UEFI. On Apple Silicon, the build
+script resolves QEMU's ARM64 edk2 firmware from the QEMU installation and passes
+it to Packer explicitly. The expected Homebrew firmware files are usually:
+
+- `/opt/homebrew/share/qemu/edk2-aarch64-code.fd`
+- `/opt/homebrew/share/qemu/edk2-arm-vars.fd`
+
+If QEMU is installed somewhere else, set both firmware paths explicitly:
+
+```sh
+PACKER_EFI_FIRMWARE_CODE=/path/to/edk2-aarch64-code.fd \
+PACKER_EFI_FIRMWARE_VARS=/path/to/edk2-arm-vars.fd \
+QEMU_ACCELERATOR=hvf scripts/build.sh arm64
+```
+
+The script fails before starting Packer when `qemu-system-aarch64` is missing,
+the firmware files are unreadable, the QEMU binary lacks HVF support, or the
+host is not Apple Silicon macOS while `QEMU_ACCELERATOR=hvf` is forced. These
+checks are intended to surface local setup problems before Packer reaches its
+long SSH timeout.
 
 ## Local static validation
 
@@ -97,6 +129,15 @@ builds must use HVF or KVM.
 
 For arm64, run the same commands on an ARM64 host. Apple Silicon Macs use HVF by
 default:
+
+```sh
+QEMU_ACCELERATOR=hvf scripts/build.sh arm64
+scripts/package.sh arm64 dev
+```
+
+`QEMU_ACCELERATOR=hvf` is optional on macOS because `auto` selects HVF, but it
+is useful when validating Apple Silicon-specific setup. Linux ARM64 KVM hosts
+keep the same build path and do not require manual firmware variables:
 
 ```sh
 scripts/build.sh arm64

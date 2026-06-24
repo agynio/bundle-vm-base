@@ -163,13 +163,16 @@ validate_qemu_boot_path() {
 			validation_cpu="host"
 			;;
 		esac
+		probe_efi_vars="$(mktemp "${TMPDIR:-/tmp}/bundle-vm-base-efivars.XXXXXX")"
+		cp "${efi_firmware_vars}" "${probe_efi_vars}"
 		set +e
 		qemu_boot_probe_output="$(timeout 10 qemu-system-aarch64 -machine "virt,accel=${validation_accelerator}" -cpu "${validation_cpu}" \
 			-display none -nodefaults -S -serial none -monitor none -parallel none -no-reboot \
 			-drive "if=pflash,format=raw,readonly=on,file=${efi_firmware_code}" \
-			-drive "if=pflash,format=raw,file=${efi_firmware_vars}" 2>&1)"
+			-drive "if=pflash,format=raw,file=${probe_efi_vars}" 2>&1)"
 		validation_status="${?}"
 		set -e
+		rm -f "${probe_efi_vars}"
 		if [ "${validation_status}" -ne 0 ] && [ "${validation_status}" -ne 124 ]; then
 			echo "QEMU cannot start the arm64 UEFI ${accelerator} boot path" >&2
 			echo "firmware code: ${efi_firmware_code}" >&2

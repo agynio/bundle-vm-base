@@ -11,7 +11,7 @@ architecture as a separate OCI artifact in GHCR:
 ## CI runner policy
 
 The default GitHub Actions workflow uses GitHub-hosted Linux runners. It does
-not require persistent self-hosted runners.
+not require persistent self-hosted runners or cloud-provider credentials.
 
 Static validation runs on `ubuntu-latest`. VM disk builds also run on
 GitHub-hosted Linux runners and explicitly enable KVM access before invoking
@@ -30,41 +30,29 @@ so the job fails with the repository's publish-build message instead of a raw
 udev error.
 
 After that step, each build job probes `/dev/kvm` via
-`scripts/select-qemu-accelerator.sh` and proceeds only when the selected
-accelerator is `kvm`:
+`scripts/select-qemu-accelerator.sh`:
 
 - `build-amd64`: `ubuntu-latest`, requires `uname -m == x86_64` and usable
-  `/dev/kvm`. This path has completed successfully in PR CI.
+  `/dev/kvm`. This path has completed successfully in PR CI with KVM.
 - `build-arm64`: defaults to `ubuntu-24.04-arm`, requires
-  `uname -m == aarch64` and usable `/dev/kvm`.
+  `uname -m == aarch64`, and prefers KVM when available. If the hosted ARM64
+  runner does not expose usable `/dev/kvm`, the job still builds and publishes
+  the required ARM64 artifact with QEMU software acceleration on the native
+  ARM64 host instead of skipping the architecture.
 
-Hosted/non-KVM software emulation is unsupported for publish builds. TCG QEMU
-runs were observed to fail or time out during k3s, cert-manager, and Argo CD
-provisioning. If `/dev/kvm` is unavailable on a runner, the job fails fast with
-a clear message instead of falling back to `QEMU_ACCELERATOR=none`.
-
-GitHub-hosted ARM64 runner investigation for this PR found that
-`ubuntu-24.04-arm` starts on `aarch64`, but `/dev/kvm` is not available after
-the official KVM udev rule in this repository. The workflow supports overriding
-the ARM64 runner label with the `ARM64_KVM_RUNNER` repository variable so an
-organization-provided GitHub-hosted larger ARM64 runner can be tried without
-changing workflow code. The selected runner still must expose usable `/dev/kvm`;
-otherwise the job fails fast.
-
-If no GitHub-provided ARM64 runner SKU with KVM is available to this repository,
-the remaining non-self-hosted path is an ephemeral cloud-builder workflow: GitHub
-Actions launches a temporary ARM64 cloud VM with KVM using OIDC, runs the build
-and publish commands there, uploads logs/artifacts, and destroys the VM. See
-`scripts/cloud-builders/README.md` for the proposed implementation path. This PR
-does not claim issue #1 is complete until either a KVM-capable GitHub-provided
-ARM64 runner is configured or an ephemeral cloud-builder provider is selected and
-implemented.
+Native-architecture runners are always used. Cross-architecture emulation is not
+the default path. The workflow supports overriding the ARM64 runner label with
+the `ARM64_KVM_RUNNER` repository variable so a GitHub-provided larger ARM64
+runner with KVM can be selected without changing workflow code; until then, the
+hosted ARM64 job remains publish-capable through native ARM64 QEMU software
+acceleration.
 
 ## Publishing policy
 
 Pull requests build and upload workflow artifacts but do not publish to GHCR.
-Pushes to `main` and `v*` tags publish to GHCR. Manual `workflow_dispatch` runs
-publish by default and can opt out with the `publish` input.
+Pushes to `main` and `v*` tags publish both architecture artifacts to GHCR.
+Manual `workflow_dispatch` runs publish by default and can opt out with the
+`publish` input.
 
 ## Local build prerequisites
 
@@ -98,9 +86,10 @@ scripts/package.sh amd64 dev
 `scripts/build.sh` defaults to `QEMU_ACCELERATOR=auto`, which selects `kvm` only
 when `/dev/kvm` is readable and writable, and otherwise selects `none`. Set
 `QEMU_ACCELERATOR=kvm` to force hardware acceleration. Software acceleration is
-only for local experimentation and is not a supported publish path.
+available for native-architecture builds when KVM is unavailable; expect it to be
+slower than KVM.
 
-For arm64, run the same commands on an ARM64 host with KVM:
+For arm64, run the same commands on an ARM64 host:
 
 ```sh
 scripts/build.sh arm64

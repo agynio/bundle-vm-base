@@ -64,6 +64,7 @@ Manual `workflow_dispatch` runs publish by default and can opt out with the
 
 - Packer 1.10 or newer.
 - QEMU system packages.
+- OpenSSH client tools, including `ssh-keygen`.
 - `xz`, `jq`, and `sha256sum`.
 - Network access to Ubuntu cloud images, k3s, Kubernetes, Helm, cert-manager,
   and Argo CD release assets.
@@ -77,7 +78,7 @@ must run on macOS ARM64.
 Install the local build tools with Homebrew:
 
 ```sh
-brew install packer qemu xorriso xz jq
+brew install packer qemu xorriso xz jq openssh
 ```
 
 The arm64 Ubuntu cloud image boots through UEFI. On Apple Silicon, the build
@@ -177,5 +178,9 @@ periods, and hyphens.
 The base image must not include Agyn production, staging, external service, or
 developer credentials. Local-only credentials created by Lima or cloud-init are
 for VM access only and must not grant access to non-local Agyn infrastructure.
-The temporary Packer build user is removed during image finalization, and
-password SSH authentication is disabled in the final disk.
+`scripts/build.sh` creates a temporary Ed25519 SSH keypair for each Packer run,
+injects only that public key into the NoCloud seed data for the temporary
+`packer` build user, and passes the private key path to Packer. Password SSH
+authentication is disabled during the build and in the final disk. The temporary
+private key remains on the host only, is removed when the build script exits,
+and the temporary Packer build user is removed during image finalization.

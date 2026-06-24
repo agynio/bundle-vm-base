@@ -1,0 +1,251 @@
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Artifact version tag without architecture suffix
+        required: false
+        type: string
+      publish:
+        description: Publish OCI artifacts to GHCR
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck yamllint jq
+
+      - name: Install Packer
+        uses: hashicorp/setup-packer@v3
+
+      - name: Static validation
+        run: scripts/static-validate.sh
+
+  build-amd64:
+    needs: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="sha-${GITHUB_SHA::12}"
+          fi
+          version="$(scripts/validate-version.sh "${version}")"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system qemu-utils xorriso xz-utils jq
+
+      - name: Install Packer
+        uses: hashicorp/setup-packer@v3
+
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          if ! sudo udevadm trigger --name-match=kvm; then
+            echo "KVM udev trigger did not complete; accelerator probe will verify /dev/kvm." >&2
+          fi
+
+      - name: Select KVM accelerator
+        id: qemu
+        run: |
+          if [ "$(uname -m)" != "x86_64" ]; then
+            echo "amd64 VM builds require a GitHub-hosted x86_64 runner; got $(uname -m)." >&2
+            exit 1
+          fi
+          accelerator="$(scripts/select-qemu-accelerator.sh)"
+          if [ "${accelerator}" != "kvm" ]; then
+            echo "KVM is not available on this GitHub-hosted runner." >&2
+            echo "This repository does not support publish builds under non-KVM QEMU." >&2
+            echo "Observed TCG runs timed out during k3s/cert-manager/Argo CD provisioning." >&2
+            echo "Use a GitHub-hosted/larger runner SKU with usable /dev/kvm." >&2
+            exit 1
+          fi
+          echo "accelerator=${accelerator}" >> "${GITHUB_OUTPUT}"
+          echo "QEMU accelerator: ${accelerator}"
+
+      - name: Build amd64 disk
+        run: scripts/build.sh amd64
+        env:
+          QEMU_ACCELERATOR: ${{ steps.qemu.outputs.accelerator }}
+
+      - name: Package amd64 artifact
+        run: scripts/package.sh amd64 "${{ steps.version.outputs.version }}"
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-vm-base-amd64
+          path: artifacts/amd64
+          if-no-files-found: error
+
+      - name: Login to GHCR
+        if: >-
+          github.event_name != 'pull_request' &&
+          (github.event_name != 'workflow_dispatch' || inputs.publish)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install ORAS
+        if: >-
+          github.event_name != 'pull_request' &&
+          (github.event_name != 'workflow_dispatch' || inputs.publish)
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish amd64 OCI artifact
+        if: >-
+          github.event_name != 'pull_request' &&
+          (github.event_name != 'workflow_dispatch' || inputs.publish)
+        run: |
+          tags=()
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            tags+=(latest)
+          fi
+          scripts/publish.sh amd64 "${{ steps.version.outputs.version }}" "${IMAGE}" "${tags[@]}"
+
+  build-arm64:
+    needs: static
+    if: >-
+      github.event_name != 'pull_request' ||
+      vars.RUN_ARM64_PR_BUILD == 'true'
+    runs-on: ${{ vars.ARM64_BUILD_RUNNER || vars.ARM64_KVM_RUNNER || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="sha-${GITHUB_SHA::12}"
+          fi
+          version="$(scripts/validate-version.sh "${version}")"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system qemu-utils xorriso xz-utils jq
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: brew install qemu xorriso xz jq
+
+      - name: Install Packer
+        uses: hashicorp/setup-packer@v3
+
+      - name: Enable KVM access
+        if: runner.os == 'Linux'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          if ! sudo udevadm trigger --name-match=kvm; then
+            echo "KVM udev trigger did not complete; accelerator probe will verify /dev/kvm." >&2
+          fi
+
+      - name: Select QEMU accelerator
+        id: qemu
+        run: |
+          if [ "$(uname -m)" != "aarch64" ] && [ "$(uname -m)" != "arm64" ]; then
+            echo "arm64 VM builds require a native ARM64 runner; got $(uname -m)." >&2
+            exit 1
+          fi
+          accelerator="$(scripts/select-qemu-accelerator.sh)"
+          if [ "${accelerator}" = "none" ]; then
+            echo "No supported QEMU accelerator is available on this ARM64 runner." >&2
+            echo "GitHub-hosted ubuntu-24.04-arm currently reaches QEMU_ACCELERATOR=none" >&2
+            echo "and times out before SSH during this image build." >&2
+            echo "Use ARM64_BUILD_RUNNER to select an ARM64 runner with KVM, or a" >&2
+            echo "macOS ARM64 runner where scripts/select-qemu-accelerator.sh selects HVF." >&2
+            exit 1
+          fi
+          echo "accelerator=${accelerator}" >> "${GITHUB_OUTPUT}"
+          echo "QEMU accelerator: ${accelerator}"
+
+      - name: Build arm64 disk
+        run: scripts/build.sh arm64
+        env:
+          QEMU_ACCELERATOR: ${{ steps.qemu.outputs.accelerator }}
+
+      - name: Package arm64 artifact
+        run: scripts/package.sh arm64 "${{ steps.version.outputs.version }}"
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-vm-base-arm64
+          path: artifacts/arm64
+          if-no-files-found: error
+
+      - name: Login to GHCR
+        if: >-
+          github.event_name != 'pull_request' &&
+          (github.event_name != 'workflow_dispatch' || inputs.publish)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install ORAS
+        if: >-
+          github.event_name != 'pull_request' &&
+          (github.event_name != 'workflow_dispatch' || inputs.publish)
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish arm64 OCI artifact
+        if: >-
+          github.event_name != 'pull_request' &&
+          (github.event_name != 'workflow_dispatch' || inputs.publish)
+        run: |
+          tags=()
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            tags+=(latest)
+          fi
+          scripts/publish.sh arm64 "${{ steps.version.outputs.version }}" "${IMAGE}" "${tags[@]}"

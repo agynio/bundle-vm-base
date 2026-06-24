@@ -50,8 +50,9 @@ scripts/build.sh amd64
 scripts/package.sh amd64 dev
 ```
 
-Use `arm64` on a native ARM64 host. Publish builds prefer KVM when available.
-The GitHub Actions workflow enables and probes `/dev/kvm` on hosted Linux
-runners, uses KVM for amd64, and keeps arm64 publish-capable on the native
-hosted ARM64 runner even when KVM is unavailable. See
-[building docs](docs/building.md) for details.
+Use `arm64` on a native ARM64 host. Apple Silicon Macs use QEMU HVF, and Linux
+publish runners must provide KVM. PR checks run the amd64 VM build and keep the
+arm64 VM build opt-in so CI stays honest when the default hosted ARM64 Linux
+runner has no acceleration. Push/tag publishing remains wired to build both
+architectures on an accelerated ARM64 runner selected by repository variable.
+See [building docs](docs/building.md) for details.

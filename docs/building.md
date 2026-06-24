@@ -10,13 +10,16 @@ architecture as a separate OCI artifact in GHCR:
 
 ## CI runner policy
 
-The default GitHub Actions workflow uses GitHub-hosted Linux runners. It does
-not require persistent self-hosted runners or cloud-provider credentials.
+The default pull request workflow runs static validation and the amd64 VM build
+on GitHub-hosted Linux runners. The arm64 VM build is skipped on pull requests
+unless repository variable `RUN_ARM64_PR_BUILD=true` is set, because the default
+hosted ARM64 Linux runner currently exposes no usable hardware acceleration for
+this image and times out before SSH under `QEMU_ACCELERATOR=none`.
 
-Static validation runs on `ubuntu-latest`. VM disk builds also run on
-GitHub-hosted Linux runners and explicitly enable KVM access before invoking
-Packer. The workflow uses the udev rule recommended by GitHub's Linux hosted
-runner hardware-acceleration documentation:
+Static validation runs on `ubuntu-latest`. The amd64 build runs on
+`ubuntu-latest` and explicitly enables KVM access before invoking Packer. The
+workflow uses the udev rule recommended by GitHub's Linux hosted runner
+hardware-acceleration documentation:
 
 ```sh
 echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -24,33 +27,36 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger --name-match=kvm
 ```
 
-On hosted runners where triggering the `kvm` device rule itself reports that the
-device is unavailable, the workflow continues to the explicit accelerator probe
-so the job fails with the repository's publish-build message instead of a raw
-udev error.
+On hosted Linux runners where triggering the `kvm` device rule itself reports
+that the device is unavailable, the workflow continues to the explicit
+accelerator probe so the job fails with the repository's publish-build message
+instead of a raw udev error.
 
 After that step, each build job probes `/dev/kvm` via
 `scripts/select-qemu-accelerator.sh`:
 
 - `build-amd64`: `ubuntu-latest`, requires `uname -m == x86_64` and usable
   `/dev/kvm`. This path has completed successfully in PR CI with KVM.
-- `build-arm64`: defaults to `ubuntu-24.04-arm`, requires
-  `uname -m == aarch64`, and prefers KVM when available. If the hosted ARM64
-  runner does not expose usable `/dev/kvm`, the job still builds and publishes
-  the required ARM64 artifact with QEMU software acceleration on the native
-  ARM64 host instead of skipping the architecture.
+- `build-arm64`: requires a native ARM64 runner and a supported accelerator. Set
+  repository variable `ARM64_BUILD_RUNNER` to an ARM64 Linux runner with KVM or
+  an Apple Silicon macOS runner with HVF. The legacy `ARM64_KVM_RUNNER` variable
+  is still honored for Linux KVM runner labels. The default fallback label is
+  `ubuntu-24.04-arm`, but that runner currently reaches `QEMU_ACCELERATOR=none`
+  and fails fast with a clear message instead of attempting a known-unreliable
+  publish build.
 
 Native-architecture runners are always used. Cross-architecture emulation is not
-the default path. The workflow supports overriding the ARM64 runner label with
-the `ARM64_KVM_RUNNER` repository variable so a GitHub-provided larger ARM64
-runner with KVM can be selected without changing workflow code; until then, the
-hosted ARM64 job remains publish-capable through native ARM64 QEMU software
-acceleration.
+the default path. Mac local builds and Apple Silicon macOS runners use HVF via
+`scripts/select-qemu-accelerator.sh`; Linux runners use KVM when `/dev/kvm` is
+readable and writable.
 
 ## Publishing policy
 
-Pull requests build and upload workflow artifacts but do not publish to GHCR.
-Pushes to `main` and `v*` tags publish both architecture artifacts to GHCR.
+Pull requests build amd64 and upload workflow artifacts but do not publish to
+GHCR. Pull request arm64 builds are opt-in with `RUN_ARM64_PR_BUILD=true` and an
+accelerated ARM64 runner. Pushes to `main` and `v*` tags publish both
+architecture artifacts to GHCR, and the arm64 publish job must run on the
+accelerated ARM64 runner selected by `ARM64_BUILD_RUNNER` or `ARM64_KVM_RUNNER`.
 Manual `workflow_dispatch` runs publish by default and can opt out with the
 `publish` input.
 
@@ -83,13 +89,14 @@ scripts/build.sh amd64
 scripts/package.sh amd64 dev
 ```
 
-`scripts/build.sh` defaults to `QEMU_ACCELERATOR=auto`, which selects `kvm` only
-when `/dev/kvm` is readable and writable, and otherwise selects `none`. Set
-`QEMU_ACCELERATOR=kvm` to force hardware acceleration. Software acceleration is
-available for native-architecture builds when KVM is unavailable; expect it to be
-slower than KVM.
+`scripts/build.sh` defaults to `QEMU_ACCELERATOR=auto`, which selects `hvf` on
+macOS, `kvm` on Linux when `/dev/kvm` is readable and writable, and otherwise
+`none`. Set `QEMU_ACCELERATOR=hvf` or `QEMU_ACCELERATOR=kvm` to force hardware
+acceleration. Software acceleration is only for local experimentation; publish
+builds must use HVF or KVM.
 
-For arm64, run the same commands on an ARM64 host:
+For arm64, run the same commands on an ARM64 host. Apple Silicon Macs use HVF by
+default:
 
 ```sh
 scripts/build.sh arm64

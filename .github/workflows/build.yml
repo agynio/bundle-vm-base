@@ -144,7 +144,10 @@ jobs:
 
   build-arm64:
     needs: static
-    runs-on: ${{ vars.ARM64_KVM_RUNNER || 'ubuntu-24.04-arm' }}
+    if: >-
+      github.event_name != 'pull_request' ||
+      vars.RUN_ARM64_PR_BUILD == 'true'
+    runs-on: ${{ vars.ARM64_BUILD_RUNNER || vars.ARM64_KVM_RUNNER || 'ubuntu-24.04-arm' }}
     timeout-minutes: 360
     steps:
       - name: Checkout
@@ -163,15 +166,21 @@ jobs:
           version="$(scripts/validate-version.sh "${version}")"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-      - name: Install build dependencies
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-system qemu-utils xorriso xz-utils jq
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: brew install qemu xorriso xz jq
 
       - name: Install Packer
         uses: hashicorp/setup-packer@v3
 
       - name: Enable KVM access
+        if: runner.os == 'Linux'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
             sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -183,11 +192,19 @@ jobs:
       - name: Select QEMU accelerator
         id: qemu
         run: |
-          if [ "$(uname -m)" != "aarch64" ]; then
-            echo "arm64 VM builds require a GitHub-hosted aarch64 runner; got $(uname -m)." >&2
+          if [ "$(uname -m)" != "aarch64" ] && [ "$(uname -m)" != "arm64" ]; then
+            echo "arm64 VM builds require a native ARM64 runner; got $(uname -m)." >&2
             exit 1
           fi
           accelerator="$(scripts/select-qemu-accelerator.sh)"
+          if [ "${accelerator}" = "none" ]; then
+            echo "No supported QEMU accelerator is available on this ARM64 runner." >&2
+            echo "GitHub-hosted ubuntu-24.04-arm currently reaches QEMU_ACCELERATOR=none" >&2
+            echo "and times out before SSH during this image build." >&2
+            echo "Use ARM64_BUILD_RUNNER to select an ARM64 runner with KVM, or a" >&2
+            echo "macOS ARM64 runner where scripts/select-qemu-accelerator.sh selects HVF." >&2
+            exit 1
+          fi
           echo "accelerator=${accelerator}" >> "${GITHUB_OUTPUT}"
           echo "QEMU accelerator: ${accelerator}"
 

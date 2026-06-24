@@ -56,8 +56,8 @@ variable "qemu_accelerator" {
   type    = string
   default = "kvm"
   validation {
-    condition     = contains(["kvm", "none"], var.qemu_accelerator)
-    error_message = "QEMU accelerator must be kvm or none."
+    condition     = contains(["kvm", "hvf", "none"], var.qemu_accelerator)
+    error_message = "QEMU accelerator must be kvm, hvf, or none."
   }
 }
 
@@ -65,7 +65,7 @@ locals {
   ubuntu_arch = var.arch == "amd64" ? "amd64" : "arm64"
   qemu_arch   = var.arch == "amd64" ? "x86_64" : "aarch64"
   machine     = var.arch == "amd64" ? "pc" : "virt"
-  cpu         = var.qemu_accelerator == "kvm" ? "host" : "max"
+  cpu         = contains(["kvm", "hvf"], var.qemu_accelerator) ? "host" : "max"
   iso_url     = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/${var.ubuntu_series}-server-cloudimg-${local.ubuntu_arch}.img"
   sha_url     = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/SHA256SUMS"
   qemuargs = var.arch == "arm64" ? [

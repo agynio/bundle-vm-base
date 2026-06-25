@@ -80,12 +80,13 @@ variable "ssh_public_key" {
 }
 
 locals {
-  ubuntu_arch = var.arch == "amd64" ? "amd64" : "arm64"
-  qemu_arch   = var.arch == "amd64" ? "x86_64" : "aarch64"
-  machine     = var.arch == "amd64" ? "pc" : "virt"
-  cpu         = contains(["kvm", "hvf"], var.qemu_accelerator) ? "host" : "max"
-  iso_url     = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/${var.ubuntu_series}-server-cloudimg-${local.ubuntu_arch}.img"
-  sha_url     = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/SHA256SUMS"
+  ubuntu_arch     = var.arch == "amd64" ? "amd64" : "arm64"
+  qemu_arch       = var.arch == "amd64" ? "x86_64" : "aarch64"
+  machine         = var.arch == "amd64" ? "pc" : "virt"
+  cpu             = contains(["kvm", "hvf"], var.qemu_accelerator) ? "host" : "max"
+  cdrom_interface = var.arch == "amd64" ? "" : "virtio-scsi"
+  iso_url         = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/${var.ubuntu_series}-server-cloudimg-${local.ubuntu_arch}.img"
+  sha_url         = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/SHA256SUMS"
   qemuargs = var.arch == "arm64" ? [
     ["-cpu", local.cpu],
     ["-boot", "strict=off"],
@@ -99,13 +100,14 @@ locals {
 source "qemu" "ubuntu_cloud" {
   accelerator = var.qemu_accelerator
   boot_wait   = "2s"
+  cd_label    = "cidata"
   cd_content = {
     "meta-data" = "instance-id: bundle-vm-base-${var.arch}\nlocal-hostname: bundle-vm-base\n"
     "user-data" = templatefile("cloud-init.pkrtpl.hcl", {
       ssh_public_key = var.ssh_public_key
     })
   }
-  cd_label               = "cidata"
+  cdrom_interface        = local.cdrom_interface
   cpus                   = 2
   disk_compression       = false
   disk_image             = true

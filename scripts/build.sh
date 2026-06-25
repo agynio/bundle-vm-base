@@ -6,6 +6,7 @@ accelerator="$(scripts/select-qemu-accelerator.sh)"
 efi_firmware_code="${PACKER_EFI_FIRMWARE_CODE:-}"
 efi_firmware_vars="${PACKER_EFI_FIRMWARE_VARS:-}"
 ssh_key_dir=""
+packer_log_path=""
 
 case "${arch}" in
 amd64 | arm64) ;;
@@ -200,23 +201,53 @@ create_build_ssh_key() {
 	ssh_public_key="$(cat "${ssh_public_key_file}")"
 }
 
-set -a
-# shellcheck source=versions.env
-source versions.env
-set +a
+create_packer_log_path() {
+	if [ -n "${PACKER_LOG_PATH:-}" ]; then
+		packer_log_path="${PACKER_LOG_PATH}"
+		export PACKER_LOG=1
+		return 0
+	fi
 
-validate_qemu_boot_path
-create_build_ssh_key
+	packer_log_path="${TMPDIR:-/tmp}/bundle-vm-base-packer-${arch}-$(date +%Y%m%d%H%M%S).log"
+	export PACKER_LOG=1
+	export PACKER_LOG_PATH="${packer_log_path}"
+}
 
-echo "Using QEMU accelerator: ${accelerator}"
-if [ "${arch}" = "arm64" ]; then
-	echo "Using ARM64 UEFI firmware code: ${efi_firmware_code}"
-	echo "Using ARM64 UEFI firmware vars: ${efi_firmware_vars}"
-fi
+print_failure_debug() {
+	status="${1}"
 
-packer init packer
-(
-	cd packer
+	if [ "${status}" -eq 0 ]; then
+		return 0
+	fi
+
+	{
+		echo "Packer build failed with exit status ${status}."
+		echo "Build debug context:"
+		echo "  architecture: ${arch}"
+		echo "  accelerator: ${accelerator}"
+		echo "  ssh private key: ${ssh_private_key_file}"
+		echo "  ssh public key fingerprint: $(ssh-keygen -lf "${ssh_public_key_file}")"
+		if [ "${arch}" = "arm64" ]; then
+			echo "  ARM64 UEFI firmware code: ${efi_firmware_code}"
+			echo "  ARM64 UEFI firmware vars: ${efi_firmware_vars}"
+			echo "  ARM64 cidata CD-ROM interface: virtio-scsi"
+		fi
+		if [ -n "${packer_log_path}" ]; then
+			echo "  Packer debug log: ${packer_log_path}"
+		fi
+		echo "If SSH auth failed, inspect the serial console and Packer log for whether the cidata NoCloud seed was attached and cloud-init created the packer user."
+	} >&2
+
+	if [ -n "${packer_log_path}" ] && [ -f "${packer_log_path}" ]; then
+		{
+			echo "Last Packer log lines:"
+			tail -n 80 "${packer_log_path}"
+		} >&2
+	fi
+}
+
+run_packer_build() {
+	set +e
 	packer build \
 		-var "arch=${arch}" \
 		-var "ubuntu_series=${UBUNTU_SERIES}" \
@@ -233,4 +264,29 @@ packer init packer
 		-var "ssh_private_key_file=${ssh_private_key_file}" \
 		-var "ssh_public_key=${ssh_public_key}" \
 		.
+	build_status="${?}"
+	set -e
+	print_failure_debug "${build_status}"
+	return "${build_status}"
+}
+
+set -a
+# shellcheck source=versions.env
+source versions.env
+set +a
+
+validate_qemu_boot_path
+create_build_ssh_key
+create_packer_log_path
+
+echo "Using QEMU accelerator: ${accelerator}"
+if [ "${arch}" = "arm64" ]; then
+	echo "Using ARM64 UEFI firmware code: ${efi_firmware_code}"
+	echo "Using ARM64 UEFI firmware vars: ${efi_firmware_vars}"
+fi
+
+packer init packer
+(
+	cd packer
+	run_packer_build
 )

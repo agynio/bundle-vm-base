@@ -102,6 +102,11 @@ host is not Apple Silicon macOS while `QEMU_ACCELERATOR=hvf` is forced. These
 checks are intended to surface local setup problems before Packer reaches its
 long SSH timeout.
 
+The ARM64 Packer source attaches the generated NoCloud `cidata` seed CD-ROM as
+`virtio-scsi`. That keeps the seed visible to Ubuntu cloud-init on Apple Silicon
+HVF and Linux ARM64 KVM, so the temporary `packer` user receives the generated
+SSH public key before Packer starts provisioning.
+
 ## Local static validation
 
 ```sh
@@ -184,3 +189,7 @@ injects only that public key into the NoCloud seed data for the temporary
 authentication is disabled during the build and in the final disk. The temporary
 private key remains on the host only, is removed when the build script exits,
 and the temporary Packer build user is removed during image finalization.
+When a build fails, the script prints the key fingerprint, ARM64 firmware and
+seed attachment mode, and the Packer debug log path so SSH authentication
+failures can be traced back to seed attachment, cloud-init, user creation, or key
+selection.

@@ -84,7 +84,7 @@ locals {
   qemu_arch       = var.arch == "amd64" ? "x86_64" : "aarch64"
   machine         = var.arch == "amd64" ? "pc" : "virt"
   cpu             = contains(["kvm", "hvf"], var.qemu_accelerator) ? "host" : "max"
-  cdrom_interface = var.arch == "amd64" ? "virtio" : "virtio-scsi"
+  cdrom_interface = var.arch == "amd64" ? "" : "virtio-scsi"
   iso_url         = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/${var.ubuntu_series}-server-cloudimg-${local.ubuntu_arch}.img"
   sha_url         = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/SHA256SUMS"
   qemuargs = var.arch == "arm64" ? [

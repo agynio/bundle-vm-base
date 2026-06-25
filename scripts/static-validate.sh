@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+validate_arm64_scsi_qemuargs() {
+	if awk '
+		/^[[:space:]]*qemuargs[[:space:]]*=/ { in_qemuargs = 1 }
+		in_qemuargs && /"-device"/ { found_device = 1 }
+		in_qemuargs && index($0, "] : [") { in_qemuargs = 0 }
+		END { exit found_device ? 0 : 1 }
+	' packer/bundle-vm-base.pkr.hcl; then
+		echo "ARM64 qemuargs must not include -device while cdrom_interface is virtio-scsi." >&2
+		echo "Packer suppresses generated scsi devices when custom -device arguments are present." >&2
+		exit 1
+	fi
+}
+
+validate_arm64_scsi_qemuargs
+
 if command -v packer >/dev/null 2>&1; then
 	ssh_key_dir="$(mktemp -d "${TMPDIR:-/tmp}/bundle-vm-base-static-ssh.XXXXXX")"
 	ssh_private_key_file="${ssh_key_dir}/packer_ed25519"

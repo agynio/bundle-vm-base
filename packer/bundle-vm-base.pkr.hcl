@@ -90,8 +90,6 @@ locals {
   qemuargs = var.arch == "arm64" ? [
     ["-cpu", local.cpu],
     ["-boot", "strict=off"],
-    ["-device", "virtio-gpu-pci"],
-    ["-device", "qemu-xhci"],
     ] : [
     ["-cpu", local.cpu],
   ]

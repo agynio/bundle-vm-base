@@ -103,9 +103,11 @@ checks are intended to surface local setup problems before Packer reaches its
 long SSH timeout.
 
 The ARM64 Packer source attaches the generated NoCloud `cidata` seed CD-ROM as
-`virtio-scsi`. That keeps the seed visible to Ubuntu cloud-init on Apple Silicon
-HVF and Linux ARM64 KVM, so the temporary `packer` user receives the generated
-SSH public key before Packer starts provisioning.
+`virtio-scsi` and does not pass custom `-device` qemuargs. That allows Packer to
+keep managing the generated `virtio-scsi-pci` and `scsi-cd` devices required for
+the seed to be guest-visible on Apple Silicon HVF and Linux ARM64 KVM. The
+temporary `packer` user receives the generated SSH public key from cloud-init
+before Packer starts provisioning.
 
 ## Local static validation
 
@@ -189,7 +191,7 @@ injects only that public key into the NoCloud seed data for the temporary
 authentication is disabled during the build and in the final disk. The temporary
 private key remains on the host only, is removed when the build script exits,
 and the temporary Packer build user is removed during image finalization.
-When a build fails, the script prints the key fingerprint, ARM64 firmware and
-seed attachment mode, and the Packer debug log path so SSH authentication
-failures can be traced back to seed attachment, cloud-init, user creation, or key
-selection.
+When a build fails, the script prints the key fingerprint, ARM64 firmware, seed
+attachment mode, Packer-managed device policy, and the Packer debug log path so
+SSH failures can be traced back to seed attachment, cloud-init completion, sshd
+startup, hostfwd reachability, user creation, or key selection.

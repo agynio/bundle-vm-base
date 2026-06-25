@@ -231,11 +231,12 @@ print_failure_debug() {
 			echo "  ARM64 UEFI firmware code: ${efi_firmware_code}"
 			echo "  ARM64 UEFI firmware vars: ${efi_firmware_vars}"
 			echo "  ARM64 cidata CD-ROM interface: virtio-scsi"
+			echo "  ARM64 qemuargs device policy: Packer-managed devices"
 		fi
 		if [ -n "${packer_log_path}" ]; then
 			echo "  Packer debug log: ${packer_log_path}"
 		fi
-		echo "If SSH auth failed, inspect the serial console and Packer log for whether the cidata NoCloud seed was attached and cloud-init created the packer user."
+		echo "If SSH failed, inspect the serial console and Packer log for NoCloud seed attachment, cloud-init completion, sshd startup, and hostfwd reachability."
 	} >&2
 
 	if [ -n "${packer_log_path}" ] && [ -f "${packer_log_path}" ]; then

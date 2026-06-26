@@ -8,6 +8,8 @@ efi_firmware_vars="${PACKER_EFI_FIRMWARE_VARS:-}"
 ssh_key_dir=""
 packer_log_path=""
 serial_log_path=""
+debug_dir="/tmp/bundle-vm-base-debug"
+tcp_probe_result="unavailable"
 
 case "${arch}" in
 amd64 | arm64) ;;
@@ -202,14 +204,27 @@ create_build_ssh_key() {
 	ssh_public_key="$(cat "${ssh_public_key_file}")"
 }
 
+ensure_parent_dir() {
+	file_path="${1}"
+	parent_dir="$(dirname "${file_path}")"
+
+	mkdir -p "${parent_dir}"
+}
+
 create_packer_log_path() {
 	if [ -n "${PACKER_LOG_PATH:-}" ]; then
 		packer_log_path="${PACKER_LOG_PATH}"
+		ensure_parent_dir "${packer_log_path}"
 		export PACKER_LOG=1
 		return 0
 	fi
 
-	packer_log_path="${TMPDIR:-/tmp}/bundle-vm-base-packer-${arch}-$(date +%Y%m%d%H%M%S).log"
+	if [ "${arch}:${accelerator}" = "arm64:hvf" ]; then
+		mkdir -p "${debug_dir}"
+		packer_log_path="${debug_dir}/packer-arm64-hvf.log"
+	else
+		packer_log_path="${TMPDIR:-/tmp}/bundle-vm-base-packer-${arch}-$(date +%Y%m%d%H%M%S).log"
+	fi
 	export PACKER_LOG=1
 	export PACKER_LOG_PATH="${packer_log_path}"
 }
@@ -221,12 +236,31 @@ create_serial_log_path() {
 
 	if [ -n "${PACKER_SERIAL_LOG_PATH:-}" ]; then
 		serial_log_path="${PACKER_SERIAL_LOG_PATH}"
+		ensure_parent_dir "${serial_log_path}"
 		: >"${serial_log_path}"
 		return 0
 	fi
 
-	serial_log_path="${TMPDIR:-/tmp}/bundle-vm-base-serial-${arch}-$(date +%Y%m%d%H%M%S).log"
+	mkdir -p "${debug_dir}"
+	serial_log_path="${debug_dir}/serial-arm64-hvf.log"
 	: >"${serial_log_path}"
+}
+
+print_arm64_hvf_banner() {
+	if [ "${arch}:${accelerator}" != "arm64:hvf" ]; then
+		return 0
+	fi
+
+	{
+		echo "ARM64 HVF diagnostics:"
+		echo "  Packer log: ${packer_log_path}"
+		echo "  Serial console log: ${serial_log_path}"
+		echo "If SSH times out, collect diagnostics with:"
+		echo "  grep -n 'AGYN-DIAG' '${serial_log_path}'"
+		echo "  tail -n 240 '${serial_log_path}'"
+		echo "  grep -nE 'hostfwd|127\\.0\\.0\\.1|handshake|connection reset|Timeout waiting for SSH|Connected to SSH' '${packer_log_path}' | tail -n 160"
+		echo "  tail -n 160 '${packer_log_path}'"
+	} >&2
 }
 
 print_log_tail() {
@@ -275,11 +309,24 @@ extract_hostfwd() {
 	extract_packer_log_value '(hostfwd=[^[:space:],]+)' || true
 }
 
+packer_log_has() {
+	pattern="${1}"
+
+	[ -n "${packer_log_path}" ] && [ -f "${packer_log_path}" ] && grep -Eqi "${pattern}" "${packer_log_path}"
+}
+
+serial_log_has() {
+	pattern="${1}"
+
+	[ -n "${serial_log_path}" ] && [ -f "${serial_log_path}" ] && grep -Fq "${pattern}" "${serial_log_path}"
+}
+
 probe_communicator_port() {
 	communicator_port="${1}"
 
 	if [ -z "${communicator_port}" ]; then
 		echo "  TCP probe: skipped; communicator host port unavailable" >&2
+		tcp_probe_result="unavailable"
 		return 0
 	fi
 
@@ -291,9 +338,11 @@ probe_communicator_port() {
 	case "${probe_status}" in
 	0)
 		echo "  TCP probe: 127.0.0.1:${communicator_port} accepted a connection" >&2
+		tcp_probe_result="accepted"
 		;;
 	*)
 		echo "  TCP probe: 127.0.0.1:${communicator_port} did not accept a connection" >&2
+		tcp_probe_result="rejected"
 		;;
 	esac
 }
@@ -317,6 +366,71 @@ print_ssh_timeout_diagnostics() {
 	} >&2
 
 	probe_communicator_port "${communicator_port}"
+}
+
+print_recent_packer_ssh_errors() {
+	if [ -z "${packer_log_path}" ] || [ ! -f "${packer_log_path}" ]; then
+		echo "Recent Packer SSH communicator errors: unavailable; Packer log missing" >&2
+		return 0
+	fi
+
+	{
+		echo "Recent Packer SSH communicator errors:"
+		grep -Ei 'ssh|handshake|connection reset|connection refused|timeout waiting for ssh|unable to authenticate|permission denied|hostfwd|127\.0\.0\.1' "${packer_log_path}" | tail -n 80 || true
+	} >&2
+}
+
+print_failure_classification() {
+	communicator_port="$(extract_communicator_port)"
+	hostfwd="$(extract_hostfwd)"
+
+	{
+		echo "Failure classification:"
+		if [ "${arch}:${accelerator}" != "arm64:hvf" ]; then
+			echo "  ARM64 HVF serial classification: not applicable for ${arch}:${accelerator}."
+			return 0
+		fi
+
+		if [ -z "${serial_log_path}" ] || [ ! -s "${serial_log_path}" ]; then
+			echo "  boot/serial: serial log is missing or empty; QEMU may not have booted far enough or serial capture failed."
+		elif ! serial_log_has "AGYN-DIAG bootcmd start"; then
+			echo "  boot/cloud-init: serial log exists, but cloud-init bootcmd markers are missing."
+		elif ! serial_log_has "AGYN-DIAG bootcmd cidata devices:" && ! serial_log_has "AGYN-DIAG cidata devices:"; then
+			echo "  seed/cloud-init: NoCloud cidata visibility markers are missing."
+		elif ! serial_log_has "AGYN-DIAG cloud-init runcmd start"; then
+			echo "  cloud-init: bootcmd ran, but runcmd did not start."
+		elif ! serial_log_has "AGYN-DIAG sshd config valid"; then
+			echo "  sshd: sshd configuration validation did not report success."
+		elif ! serial_log_has "AGYN-DIAG ssh service active"; then
+			echo "  sshd: ssh service did not report active."
+		elif ! serial_log_has "AGYN-DIAG port 22 listeners:"; then
+			echo "  sshd: port 22 listener marker is missing."
+		elif [ -z "${hostfwd}" ] || [ -z "${communicator_port}" ]; then
+			echo "  hostfwd: Packer log did not expose QEMU hostfwd or communicator port."
+		elif [ "${tcp_probe_result}" = "rejected" ]; then
+			echo "  hostfwd/tcp: QEMU hostfwd was logged, but the host TCP probe could not connect to 127.0.0.1:${communicator_port}."
+		elif packer_log_has 'connection reset by peer'; then
+			echo "  auth/handshake: hostfwd and guest sshd evidence exist, but Packer saw connection reset by peer during SSH handshake."
+		elif [ "${tcp_probe_result}" = "accepted" ]; then
+			echo "  auth/handshake: host TCP probe reached 127.0.0.1:${communicator_port}; inspect SSH auth, username, key, and sshd journal evidence."
+		else
+			echo "  unresolved: review Packer SSH errors and serial AGYN-DIAG markers above."
+		fi
+	} >&2
+}
+
+print_diagnostic_collection_commands() {
+	{
+		echo "Diagnostic collection commands:"
+		if [ -n "${serial_log_path}" ]; then
+			echo "  grep -n 'AGYN-DIAG' '${serial_log_path}'"
+			echo "  tail -n 240 '${serial_log_path}'"
+		fi
+		if [ -n "${packer_log_path}" ]; then
+			echo "  grep -nE 'hostfwd|127\\.0\\.0\\.1|handshake|connection reset|Timeout waiting for SSH|Connected to SSH|permission denied|unable to authenticate' '${packer_log_path}' | tail -n 160"
+			echo "  tail -n 160 '${packer_log_path}'"
+		fi
+	} >&2
 }
 
 print_failure_debug() {
@@ -349,6 +463,9 @@ print_failure_debug() {
 	} >&2
 
 	print_ssh_timeout_diagnostics
+	print_recent_packer_ssh_errors
+	print_failure_classification
+	print_diagnostic_collection_commands
 	print_log_tail "Last Packer log lines" "${packer_log_path}" 120
 	print_log_tail "Last ARM64 HVF serial console lines" "${serial_log_path}" 160
 }
@@ -396,6 +513,7 @@ fi
 if [ -n "${serial_log_path}" ]; then
 	echo "Writing ARM64 HVF serial console log: ${serial_log_path}"
 fi
+print_arm64_hvf_banner
 
 packer init packer
 (

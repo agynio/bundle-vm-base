@@ -110,7 +110,8 @@ source "qemu" "ubuntu_cloud" {
   cd_content = {
     "meta-data" = "instance-id: bundle-vm-base-${var.arch}\nlocal-hostname: bundle-vm-base\n"
     "user-data" = templatefile("cloud-init.pkrtpl.hcl", {
-      ssh_public_key = var.ssh_public_key
+      enable_cloud_init_diagnostics = var.arch == "arm64" && var.qemu_accelerator == "hvf"
+      ssh_public_key                = var.ssh_public_key
     })
   }
   cdrom_interface        = local.cdrom_interface

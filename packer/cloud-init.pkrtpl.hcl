@@ -1,8 +1,10 @@
 #cloud-config
 ssh_pwauth: false
 disable_root: false
+%{ if enable_cloud_init_diagnostics ~}
 output:
   all: "| tee -a /var/log/cloud-init-output.log /dev/console"
+%{ endif ~}
 users:
   - name: packer
     groups: [adm, sudo]
@@ -12,6 +14,7 @@ users:
       - ${ssh_public_key}
     sudo: ["ALL=(ALL) NOPASSWD:ALL"]
 runcmd:
+%{ if enable_cloud_init_diagnostics ~}
   - |
     printf '%s\n' 'AGYN-DIAG cloud-init runcmd start'
   - |
@@ -35,10 +38,12 @@ runcmd:
     else
       printf '%s\n' 'AGYN-DIAG packer authorized_keys missing'
     fi
+%{ endif ~}
   - install -d -m 0755 /etc/ssh/sshd_config.d
   - |
     printf '%s\n' 'PasswordAuthentication no' 'PubkeyAuthentication yes' >/etc/ssh/sshd_config.d/10-packer-build.conf
   - systemctl enable --now ssh
+%{ if enable_cloud_init_diagnostics ~}
   - systemctl --no-pager --full status ssh || true
   - |
     if systemctl is-active --quiet ssh; then
@@ -51,3 +56,4 @@ runcmd:
     ss -ltnp || true
   - |
     printf '%s\n' 'AGYN-DIAG cloud-init runcmd complete'
+%{ endif ~}

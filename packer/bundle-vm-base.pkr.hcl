@@ -79,6 +79,11 @@ variable "ssh_public_key" {
   type = string
 }
 
+variable "serial_log_path" {
+  type    = string
+  default = ""
+}
+
 locals {
   ubuntu_arch     = var.arch == "amd64" ? "amd64" : "arm64"
   qemu_arch       = var.arch == "amd64" ? "x86_64" : "aarch64"
@@ -87,10 +92,13 @@ locals {
   cdrom_interface = var.arch == "amd64" ? "" : "virtio-scsi"
   iso_url         = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/${var.ubuntu_series}-server-cloudimg-${local.ubuntu_arch}.img"
   sha_url         = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/SHA256SUMS"
-  qemuargs = var.arch == "arm64" ? [
+  arm64_qemuargs = concat([
     ["-cpu", local.cpu],
     ["-boot", "strict=off"],
-    ] : [
+    ], var.serial_log_path == "" ? [] : [
+    ["-serial", "file:${var.serial_log_path}"],
+  ])
+  qemuargs = var.arch == "arm64" ? local.arm64_qemuargs : [
     ["-cpu", local.cpu],
   ]
 }

@@ -7,6 +7,7 @@ efi_firmware_code="${PACKER_EFI_FIRMWARE_CODE:-}"
 efi_firmware_vars="${PACKER_EFI_FIRMWARE_VARS:-}"
 ssh_key_dir=""
 packer_log_path=""
+serial_log_path=""
 
 case "${arch}" in
 amd64 | arm64) ;;
@@ -213,6 +214,111 @@ create_packer_log_path() {
 	export PACKER_LOG_PATH="${packer_log_path}"
 }
 
+create_serial_log_path() {
+	if [ "${arch}:${accelerator}" != "arm64:hvf" ]; then
+		return 0
+	fi
+
+	if [ -n "${PACKER_SERIAL_LOG_PATH:-}" ]; then
+		serial_log_path="${PACKER_SERIAL_LOG_PATH}"
+		: >"${serial_log_path}"
+		return 0
+	fi
+
+	serial_log_path="${TMPDIR:-/tmp}/bundle-vm-base-serial-${arch}-$(date +%Y%m%d%H%M%S).log"
+	: >"${serial_log_path}"
+}
+
+print_log_tail() {
+	log_label="${1}"
+	log_path="${2}"
+	line_count="${3}"
+
+	if [ -z "${log_path}" ]; then
+		echo "${log_label}: unavailable" >&2
+		return 0
+	fi
+
+	if [ ! -f "${log_path}" ]; then
+		echo "${log_label}: missing at ${log_path}" >&2
+		return 0
+	fi
+
+	{
+		echo "${log_label}: ${log_path}"
+		tail -n "${line_count}" "${log_path}"
+	} >&2
+}
+
+extract_packer_log_value() {
+	pattern="${1}"
+
+	if [ -z "${packer_log_path}" ] || [ ! -f "${packer_log_path}" ]; then
+		return 1
+	fi
+
+	sed -nE "s/.*${pattern}.*/\\1/p" "${packer_log_path}" | tail -n 1
+}
+
+extract_communicator_port() {
+	if [ -z "${packer_log_path}" ] || [ ! -f "${packer_log_path}" ]; then
+		return 0
+	fi
+
+	{
+		sed -nE 's/.*127\.0\.0\.1:([0-9]+).*/\1/p' "${packer_log_path}"
+		sed -nE 's/.*host:[[:space:]]*127\.0\.0\.1,[[:space:]]*port:[[:space:]]*([0-9]+).*/\1/p' "${packer_log_path}"
+	} | tail -n 1
+}
+
+extract_hostfwd() {
+	extract_packer_log_value '(hostfwd=[^[:space:],]+)' || true
+}
+
+probe_communicator_port() {
+	communicator_port="${1}"
+
+	if [ -z "${communicator_port}" ]; then
+		echo "  TCP probe: skipped; communicator host port unavailable" >&2
+		return 0
+	fi
+
+	set +e
+	( exec 3<>"/dev/tcp/127.0.0.1/${communicator_port}" ) >/dev/null 2>&1
+	probe_status="${?}"
+	set -e
+
+	case "${probe_status}" in
+	0)
+		echo "  TCP probe: 127.0.0.1:${communicator_port} accepted a connection" >&2
+		;;
+	*)
+		echo "  TCP probe: 127.0.0.1:${communicator_port} did not accept a connection" >&2
+		;;
+	esac
+}
+
+print_ssh_timeout_diagnostics() {
+	communicator_port="$(extract_communicator_port)"
+	hostfwd="$(extract_hostfwd)"
+
+	{
+		echo "SSH-timeout diagnostics:"
+		if [ -n "${hostfwd}" ]; then
+			echo "  QEMU hostfwd: ${hostfwd}"
+		else
+			echo "  QEMU hostfwd: unavailable in Packer log"
+		fi
+		if [ -n "${communicator_port}" ]; then
+			echo "  communicator host port: 127.0.0.1:${communicator_port}"
+		else
+			echo "  communicator host port: unavailable in Packer log"
+		fi
+	} >&2
+
+	probe_communicator_port "${communicator_port}"
+}
+
 print_failure_debug() {
 	status="${1}"
 
@@ -236,15 +342,15 @@ print_failure_debug() {
 		if [ -n "${packer_log_path}" ]; then
 			echo "  Packer debug log: ${packer_log_path}"
 		fi
-		echo "If SSH failed, inspect the serial console and Packer log for NoCloud seed attachment, cloud-init completion, sshd startup, and hostfwd reachability."
+		if [ -n "${serial_log_path}" ]; then
+			echo "  ARM64 HVF serial console log: ${serial_log_path}"
+		fi
+		echo "Inspect AGYN-DIAG markers below for NoCloud seed visibility, cloud-init completion, packer user setup, sshd startup, listening sockets, and hostfwd reachability."
 	} >&2
 
-	if [ -n "${packer_log_path}" ] && [ -f "${packer_log_path}" ]; then
-		{
-			echo "Last Packer log lines:"
-			tail -n 80 "${packer_log_path}"
-		} >&2
-	fi
+	print_ssh_timeout_diagnostics
+	print_log_tail "Last Packer log lines" "${packer_log_path}" 120
+	print_log_tail "Last ARM64 HVF serial console lines" "${serial_log_path}" 160
 }
 
 run_packer_build() {
@@ -264,6 +370,7 @@ run_packer_build() {
 		-var "efi_firmware_vars=${efi_firmware_vars}" \
 		-var "ssh_private_key_file=${ssh_private_key_file}" \
 		-var "ssh_public_key=${ssh_public_key}" \
+		-var "serial_log_path=${serial_log_path}" \
 		.
 	build_status="${?}"
 	set -e
@@ -279,11 +386,15 @@ set +a
 validate_qemu_boot_path
 create_build_ssh_key
 create_packer_log_path
+create_serial_log_path
 
 echo "Using QEMU accelerator: ${accelerator}"
 if [ "${arch}" = "arm64" ]; then
 	echo "Using ARM64 UEFI firmware code: ${efi_firmware_code}"
 	echo "Using ARM64 UEFI firmware vars: ${efi_firmware_vars}"
+fi
+if [ -n "${serial_log_path}" ]; then
+	echo "Writing ARM64 HVF serial console log: ${serial_log_path}"
 fi
 
 packer init packer

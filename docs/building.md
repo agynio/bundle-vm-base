@@ -103,9 +103,49 @@ checks are intended to surface local setup problems before Packer reaches its
 long SSH timeout.
 
 The ARM64 Packer source attaches the generated NoCloud `cidata` seed CD-ROM as
-`virtio-scsi`. That keeps the seed visible to Ubuntu cloud-init on Apple Silicon
-HVF and Linux ARM64 KVM, so the temporary `packer` user receives the generated
-SSH public key before Packer starts provisioning.
+`virtio-scsi` and does not pass custom `-device` qemuargs. That allows Packer to
+keep managing the generated `virtio-scsi-pci` and `scsi-cd` devices required for
+the seed to be guest-visible on Apple Silicon HVF and Linux ARM64 KVM. The
+temporary `packer` user receives the generated SSH public key from cloud-init
+before Packer starts provisioning.
+
+### SSH-timeout diagnostics
+
+`scripts/build.sh` enables Packer debug logging for every build. When an Apple
+Silicon HVF build runs, it also writes the guest serial console to a separate
+log. The default paths are timestamped files under `${TMPDIR:-/tmp}`:
+
+- `bundle-vm-base-packer-arm64-YYYYmmddHHMMSS.log`
+- `bundle-vm-base-serial-arm64-YYYYmmddHHMMSS.log`
+
+Set `PACKER_LOG_PATH` or `PACKER_SERIAL_LOG_PATH` to choose explicit paths. On
+failure, the script prints both paths, extracts the communicator host port and
+QEMU `hostfwd` entry from the Packer log when present, runs a best-effort TCP
+probe against `127.0.0.1:<port>`, and tails both logs.
+
+Search the serial log for these cloud-init markers:
+
+- `AGYN-DIAG cloud-init runcmd start`
+- `AGYN-DIAG block devices:`
+- `AGYN-DIAG cidata devices:`
+- `AGYN-DIAG cidata mounts:`
+- `AGYN-DIAG packer user present`
+- `AGYN-DIAG packer authorized_keys present`
+- `AGYN-DIAG ssh service active`
+- `AGYN-DIAG listening sockets:`
+- `AGYN-DIAG cloud-init runcmd complete`
+
+Use the emitted evidence to narrow SSH timeouts:
+
+| Evidence | Likely cause |
+| --- | --- |
+| No serial log or no kernel/cloud-init output | Guest did not boot far enough, or serial capture failed. Check ARM64 firmware and QEMU startup lines in the Packer log. |
+| No `cidata` device or mount marker | NoCloud seed was not guest-visible. Check `cdrom_interface`, Packer-managed SCSI devices, and QEMU device arguments. |
+| `cidata` is visible but no cloud-init completion marker | cloud-init failed or stalled before finishing user setup. Inspect surrounding serial output. |
+| Missing packer user or authorized key markers | cloud-init did not apply the user data that Packer generated. Check seed contents and cloud-init errors. |
+| `ssh service active` missing or no port 22 listener in socket output | sshd did not start inside the guest. Inspect `systemctl status ssh` in the serial log. |
+| Guest sshd is active but host TCP probe fails | QEMU user networking or `hostfwd` did not expose the communicator port. Inspect the Packer log `hostfwd` line. |
+| Host TCP probe succeeds but Packer still cannot connect | The path is reachable; inspect SSH auth, username, and key fingerprint details. |
 
 ## Local static validation
 
@@ -189,7 +229,9 @@ injects only that public key into the NoCloud seed data for the temporary
 authentication is disabled during the build and in the final disk. The temporary
 private key remains on the host only, is removed when the build script exits,
 and the temporary Packer build user is removed during image finalization.
-When a build fails, the script prints the key fingerprint, ARM64 firmware and
-seed attachment mode, and the Packer debug log path so SSH authentication
-failures can be traced back to seed attachment, cloud-init, user creation, or key
-selection.
+When a build fails, the script prints the key fingerprint, ARM64 firmware, seed
+attachment mode, Packer-managed device policy, Packer debug log path, ARM64 HVF
+serial console log path, communicator host port, QEMU `hostfwd` entry, and a
+best-effort host TCP probe. The serial log includes `AGYN-DIAG` markers for
+block devices, `cidata`, cloud-init completion, `packer` user setup, sshd
+startup, and listening sockets.

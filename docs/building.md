@@ -113,18 +113,29 @@ before Packer starts provisioning.
 
 `scripts/build.sh` enables Packer debug logging for every build. When an Apple
 Silicon HVF build runs, it also writes the guest serial console to a separate
-log. The default paths are timestamped files under `${TMPDIR:-/tmp}`:
+log. The default ARM64/HVF debug directory is stable so macOS does not hide the
+logs under its randomized `$TMPDIR` path:
 
-- `bundle-vm-base-packer-arm64-YYYYmmddHHMMSS.log`
-- `bundle-vm-base-serial-arm64-YYYYmmddHHMMSS.log`
+- `/tmp/bundle-vm-base-debug/packer-arm64-hvf-YYYYmmddHHMMSS.log`
+- `/tmp/bundle-vm-base-debug/serial-arm64-hvf-YYYYmmddHHMMSS.log`
 
-Set `PACKER_LOG_PATH` or `PACKER_SERIAL_LOG_PATH` to choose explicit paths. On
-failure, the script prints both paths, extracts the communicator host port and
-QEMU `hostfwd` entry from the Packer log when present, runs a best-effort TCP
-probe against `127.0.0.1:<port>`, and tails both logs.
+Set `PACKER_LOG_PATH` or `PACKER_SERIAL_LOG_PATH` to choose explicit paths; the
+script creates parent directories for those overrides. At build start and on
+failure, the script prints both paths plus copy/paste commands. On failure, it
+extracts the communicator host port and QEMU `hostfwd` entry from the Packer log
+when present, runs a best-effort TCP probe against `127.0.0.1:<port>`, prints
+recent Packer SSH communicator errors, runs a best-effort `ssh -vvv` probe with
+the generated private key and a short timeout, classifies the failure, and tails
+both logs. If the serial log is missing or empty, the failure output says that
+explicitly.
 
 Search the serial log for these cloud-init markers:
 
+- `AGYN-DIAG bootcmd start`
+- `AGYN-DIAG bootcmd block devices:`
+- `AGYN-DIAG bootcmd cidata devices:`
+- `AGYN-DIAG bootcmd cidata mounts:`
+- `AGYN-DIAG bootcmd complete`
 - `AGYN-DIAG cloud-init runcmd start`
 - `AGYN-DIAG block devices:`
 - `AGYN-DIAG cidata devices:`
@@ -132,6 +143,10 @@ Search the serial log for these cloud-init markers:
 - `AGYN-DIAG packer user present`
 - `AGYN-DIAG packer authorized_keys present`
 - `AGYN-DIAG ssh service active`
+- `AGYN-DIAG sshd config valid`
+- `AGYN-DIAG ssh host keys:`
+- `AGYN-DIAG port 22 listeners:`
+- `AGYN-DIAG ssh journal tail start`
 - `AGYN-DIAG listening sockets:`
 - `AGYN-DIAG cloud-init runcmd complete`
 
@@ -140,12 +155,14 @@ Use the emitted evidence to narrow SSH timeouts:
 | Evidence | Likely cause |
 | --- | --- |
 | No serial log or no kernel/cloud-init output | Guest did not boot far enough, or serial capture failed. Check ARM64 firmware and QEMU startup lines in the Packer log. |
+| No bootcmd markers | cloud-init did not start early enough to run bootcmd. Inspect boot and NoCloud datasource output. |
 | No `cidata` device or mount marker | NoCloud seed was not guest-visible. Check `cdrom_interface`, Packer-managed SCSI devices, and QEMU device arguments. |
 | `cidata` is visible but no cloud-init completion marker | cloud-init failed or stalled before finishing user setup. Inspect surrounding serial output. |
 | Missing packer user or authorized key markers | cloud-init did not apply the user data that Packer generated. Check seed contents and cloud-init errors. |
-| `ssh service active` missing or no port 22 listener in socket output | sshd did not start inside the guest. Inspect `systemctl status ssh` in the serial log. |
+| `ssh service active`, `sshd config valid`, or port 22 listener marker missing | sshd did not start or validate inside the guest. Inspect `systemctl status ssh`, `sshd -t`, and `journalctl -u ssh` output in the serial log. |
 | Guest sshd is active but host TCP probe fails | QEMU user networking or `hostfwd` did not expose the communicator port. Inspect the Packer log `hostfwd` line. |
-| Host TCP probe succeeds but Packer still cannot connect | The path is reachable; inspect SSH auth, username, and key fingerprint details. |
+| Host TCP probe succeeds but Packer reports connection reset by peer | The path is reachable but SSH handshake is being reset. Inspect sshd journal, host keys, `sshd -t`, username, and key fingerprint details. |
+| Host TCP probe succeeds but Packer still cannot authenticate | The path is reachable; inspect SSH auth, username, and key fingerprint details. |
 
 ## Local static validation
 

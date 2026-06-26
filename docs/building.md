@@ -116,16 +116,18 @@ Silicon HVF build runs, it also writes the guest serial console to a separate
 log. The default ARM64/HVF debug directory is stable so macOS does not hide the
 logs under its randomized `$TMPDIR` path:
 
-- `/tmp/bundle-vm-base-debug/packer-arm64-hvf.log`
-- `/tmp/bundle-vm-base-debug/serial-arm64-hvf.log`
+- `/tmp/bundle-vm-base-debug/packer-arm64-hvf-YYYYmmddHHMMSS.log`
+- `/tmp/bundle-vm-base-debug/serial-arm64-hvf-YYYYmmddHHMMSS.log`
 
 Set `PACKER_LOG_PATH` or `PACKER_SERIAL_LOG_PATH` to choose explicit paths; the
 script creates parent directories for those overrides. At build start and on
 failure, the script prints both paths plus copy/paste commands. On failure, it
 extracts the communicator host port and QEMU `hostfwd` entry from the Packer log
 when present, runs a best-effort TCP probe against `127.0.0.1:<port>`, prints
-recent Packer SSH communicator errors, classifies the failure, and tails both
-logs.
+recent Packer SSH communicator errors, runs a best-effort `ssh -vvv` probe with
+the generated private key and a short timeout, classifies the failure, and tails
+both logs. If the serial log is missing or empty, the failure output says that
+explicitly.
 
 Search the serial log for these cloud-init markers:
 

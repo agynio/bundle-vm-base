@@ -10,6 +10,7 @@ packer_log_path=""
 serial_log_path=""
 debug_dir="/tmp/bundle-vm-base-debug"
 tcp_probe_result="unavailable"
+build_timestamp="$(date +%Y%m%d%H%M%S)"
 
 case "${arch}" in
 amd64 | arm64) ;;
@@ -221,9 +222,9 @@ create_packer_log_path() {
 
 	if [ "${arch}:${accelerator}" = "arm64:hvf" ]; then
 		mkdir -p "${debug_dir}"
-		packer_log_path="${debug_dir}/packer-arm64-hvf.log"
+		packer_log_path="${debug_dir}/packer-arm64-hvf-${build_timestamp}.log"
 	else
-		packer_log_path="${TMPDIR:-/tmp}/bundle-vm-base-packer-${arch}-$(date +%Y%m%d%H%M%S).log"
+		packer_log_path="${TMPDIR:-/tmp}/bundle-vm-base-packer-${arch}-${build_timestamp}.log"
 	fi
 	export PACKER_LOG=1
 	export PACKER_LOG_PATH="${packer_log_path}"
@@ -242,7 +243,7 @@ create_serial_log_path() {
 	fi
 
 	mkdir -p "${debug_dir}"
-	serial_log_path="${debug_dir}/serial-arm64-hvf.log"
+	serial_log_path="${debug_dir}/serial-arm64-hvf-${build_timestamp}.log"
 	: >"${serial_log_path}"
 }
 
@@ -275,6 +276,11 @@ print_log_tail() {
 
 	if [ ! -f "${log_path}" ]; then
 		echo "${log_label}: missing at ${log_path}" >&2
+		return 0
+	fi
+
+	if [ ! -s "${log_path}" ]; then
+		echo "${log_label}: empty at ${log_path}" >&2
 		return 0
 	fi
 
@@ -347,6 +353,45 @@ probe_communicator_port() {
 	esac
 }
 
+print_ssh_handshake_probe() {
+	communicator_port="${1}"
+
+	if [ -z "${communicator_port}" ]; then
+		echo "SSH handshake probe: skipped; communicator host port unavailable" >&2
+		return 0
+	fi
+
+	if [ ! -r "${ssh_private_key_file}" ]; then
+		echo "SSH handshake probe: skipped; private key is not readable: ${ssh_private_key_file}" >&2
+		return 0
+	fi
+
+	probe_output_path="${debug_dir}/ssh-probe-arm64-hvf-${build_timestamp}.log"
+	if [ "${arch}:${accelerator}" != "arm64:hvf" ]; then
+		probe_output_path="${TMPDIR:-/tmp}/bundle-vm-base-ssh-probe-${arch}-${build_timestamp}.log"
+	fi
+	ensure_parent_dir "${probe_output_path}"
+
+	set +e
+	ssh -vvv \
+		-o BatchMode=yes \
+		-o ConnectTimeout=5 \
+		-o ConnectionAttempts=1 \
+		-o StrictHostKeyChecking=no \
+		-o UserKnownHostsFile=/dev/null \
+		-o LogLevel=DEBUG3 \
+		-i "${ssh_private_key_file}" \
+		-p "${communicator_port}" \
+		packer@127.0.0.1 true >"${probe_output_path}" 2>&1
+	probe_status="${?}"
+	set -e
+
+	{
+		echo "SSH handshake probe: exit status ${probe_status}; log: ${probe_output_path}"
+		grep -Ei 'connecting to|connection established|connection reset|connection refused|permission denied|authentications that can continue|offering public key|server accepts key|no more authentication methods|host key|kex_exchange_identification|ssh_exchange_identification|banner|timeout|timed out' "${probe_output_path}" | tail -n 80 || true
+	} >&2
+}
+
 print_ssh_timeout_diagnostics() {
 	communicator_port="$(extract_communicator_port)"
 	hostfwd="$(extract_hostfwd)"
@@ -366,6 +411,7 @@ print_ssh_timeout_diagnostics() {
 	} >&2
 
 	probe_communicator_port "${communicator_port}"
+	print_ssh_handshake_probe "${communicator_port}"
 }
 
 print_recent_packer_ssh_errors() {
@@ -461,6 +507,18 @@ print_failure_debug() {
 		fi
 		echo "Inspect AGYN-DIAG markers below for NoCloud seed visibility, cloud-init completion, packer user setup, sshd startup, listening sockets, and hostfwd reachability."
 	} >&2
+
+	if [ "${arch}:${accelerator}" = "arm64:hvf" ]; then
+		if [ -z "${serial_log_path}" ]; then
+			echo "ARM64 HVF serial console log path is unavailable." >&2
+		elif [ ! -f "${serial_log_path}" ]; then
+			echo "ARM64 HVF serial console log expected at ${serial_log_path} but it does not exist." >&2
+			echo "This means QEMU did not create the serial output file or failed before serial initialization." >&2
+		elif [ ! -s "${serial_log_path}" ]; then
+			echo "ARM64 HVF serial console log exists at ${serial_log_path} but is empty." >&2
+			echo "This means QEMU created the serial file but the guest produced no captured serial output before failure." >&2
+		fi
+	fi
 
 	print_ssh_timeout_diagnostics
 	print_recent_packer_ssh_errors

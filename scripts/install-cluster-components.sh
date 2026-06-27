@@ -6,6 +6,8 @@ K3S_KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 COMPONENT_ROLLOUT_TIMEOUT=900s
 IMAGE_PULL_TIMEOUT=1800
 MANIFEST_APPLY_TIMEOUT=900
+ARGOCD_HTTP_NODE_PORT=30080
+ARGOCD_HTTPS_NODE_PORT=30443
 COMPONENT_IMAGES=(
 	"quay.io/jetstack/cert-manager-controller:${CERT_MANAGER_VERSION}"
 	"quay.io/jetstack/cert-manager-cainjector:${CERT_MANAGER_VERSION}"
@@ -160,6 +162,27 @@ wait_for_deployment_rollout() {
 	return 1
 }
 
+validate_argocd_server_service() {
+	service_type="$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.type}')"
+	http_node_port="$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.name=="http")].nodePort}')"
+	https_node_port="$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.name=="https")].nodePort}')"
+
+	if [ "${service_type}" != "NodePort" ]; then
+		echo "argocd-server service type is ${service_type}, expected NodePort" >&2
+		return 1
+	fi
+
+	if [ "${http_node_port}" != "${ARGOCD_HTTP_NODE_PORT}" ]; then
+		echo "argocd-server http nodePort is ${http_node_port}, expected ${ARGOCD_HTTP_NODE_PORT}" >&2
+		return 1
+	fi
+
+	if [ "${https_node_port}" != "${ARGOCD_HTTPS_NODE_PORT}" ]; then
+		echo "argocd-server https nodePort is ${https_node_port}, expected ${ARGOCD_HTTPS_NODE_PORT}" >&2
+		return 1
+	fi
+}
+
 apply_remote_manifest "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
 wait_for_deployment_rollout cert-manager cert-manager "${COMPONENT_ROLLOUT_TIMEOUT}"
 wait_for_deployment_rollout cert-manager cert-manager-cainjector "${COMPONENT_ROLLOUT_TIMEOUT}"
@@ -173,6 +196,35 @@ wait_for_deployment_rollout argocd argocd-notifications-controller "${COMPONENT_
 wait_for_deployment_rollout argocd argocd-redis "${COMPONENT_ROLLOUT_TIMEOUT}"
 wait_for_deployment_rollout argocd argocd-repo-server "${COMPONENT_ROLLOUT_TIMEOUT}"
 wait_for_deployment_rollout argocd argocd-server "${COMPONENT_ROLLOUT_TIMEOUT}"
+
+kubectl -n argocd patch svc argocd-server \
+	--type=merge \
+	-p "$(cat <<EOF
+{
+  "spec": {
+    "type": "NodePort",
+    "ports": [
+      {
+        "name": "http",
+        "port": 80,
+        "protocol": "TCP",
+        "targetPort": 8080,
+        "nodePort": ${ARGOCD_HTTP_NODE_PORT}
+      },
+      {
+        "name": "https",
+        "port": 443,
+        "protocol": "TCP",
+        "targetPort": 8080,
+        "nodePort": ${ARGOCD_HTTPS_NODE_PORT}
+      }
+    ]
+  }
+}
+EOF
+)"
+kubectl -n argocd get svc argocd-server -o wide
+validate_argocd_server_service
 
 cat >/etc/agyn/components.json <<EOF
 {

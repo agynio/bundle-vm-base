@@ -18,6 +18,16 @@ containerd:
   system: false
   user: false
 
+portForwards:
+  - guestPort: 30080
+    hostIP: 127.0.0.1
+    hostPort: 8080
+    proto: tcp
+  - guestPort: 30443
+    hostIP: 127.0.0.1
+    hostPort: 8443
+    proto: tcp
+
 provision:
   - mode: system
     script: |

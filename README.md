@@ -30,6 +30,14 @@ Each artifact contains:
 - `metadata.json` with OS, architecture, disk, k3s, and component versions
 - generated `lima.yaml` for manual testing
 
+The generated Lima config forwards Argo CD from the VM to localhost by default:
+
+- `http://argocd.agyn.dev:8080`
+- `https://argocd.agyn.dev:8443`
+
+Use `127.0.0.1` instead of `argocd.agyn.dev` if that hostname is not configured
+to resolve locally.
+
 ## Documentation
 
 - [Building and publishing](docs/building.md)

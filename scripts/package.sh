@@ -86,3 +86,10 @@ sed \
 	cd "${artifact_dir}"
 	sha256sum "bundle-vm-base-${arch}.qcow2.xz" metadata.json lima.yaml >checksums.sha256
 )
+
+cat <<EOF
+Packaged ${artifact_dir}
+Argo CD Lima forwards:
+  http://argocd.agyn.dev:8080
+  https://argocd.agyn.dev:8443
+EOF

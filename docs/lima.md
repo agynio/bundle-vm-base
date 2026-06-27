@@ -70,8 +70,21 @@ limactl shell agyn-base -- sudo kubectl -n cert-manager wait --for=condition=Ava
 
 ```sh
 limactl shell agyn-base -- sudo kubectl -n argocd get deploy,pods
+limactl shell agyn-base -- sudo kubectl -n argocd get svc argocd-server
 limactl shell agyn-base -- sudo kubectl -n argocd wait --for=condition=Available deploy --all --timeout=180s
 ```
+
+The generated Lima config forwards the Argo CD NodePort service to
+non-privileged localhost ports by default:
+
+- `http://argocd.agyn.dev:8080`
+- `https://argocd.agyn.dev:8443`
+
+Those hostnames require `argocd.agyn.dev` to resolve to `127.0.0.1` on the
+host. If you do not have that DNS or hosts entry, use
+`http://127.0.0.1:8080` or `https://127.0.0.1:8443` instead. The Argo CD server
+uses its packaged self-signed certificate unless a later bundle layer replaces
+it.
 
 ## Stop and remove
 

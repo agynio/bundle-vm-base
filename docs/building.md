@@ -167,6 +167,12 @@ scripts/build.sh amd64
 scripts/package.sh amd64 dev
 ```
 
+Packaging generates `artifacts/<arch>/lima.yaml` with Argo CD forwarded from the
+VM to `127.0.0.1:8080` for HTTP and `127.0.0.1:8443` for HTTPS. With
+`argocd.agyn.dev` resolving to `127.0.0.1`, the generated VM exposes Argo CD at
+`http://argocd.agyn.dev:8080` and `https://argocd.agyn.dev:8443` without a
+manual `kubectl port-forward`.
+
 `scripts/build.sh` defaults to `QEMU_ACCELERATOR=auto`, which selects `hvf` on
 macOS, `kvm` on Linux when `/dev/kvm` is readable and writable, and otherwise
 `none`. Set `QEMU_ACCELERATOR=hvf` or `QEMU_ACCELERATOR=kvm` to force hardware

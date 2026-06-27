@@ -58,8 +58,22 @@ validate_arm64_scsi_qemuargs_negative_fixture() {
 	trap - RETURN
 }
 
+validate_argocd_lima_port_forward() {
+	grep -Fq 'guestPort: 30080' examples/lima.yaml.tpl
+	grep -Fq 'hostPort: 8080' examples/lima.yaml.tpl
+	grep -Fq 'guestPort: 30443' examples/lima.yaml.tpl
+	grep -Fq 'hostPort: 8443' examples/lima.yaml.tpl
+}
+
+validate_argocd_node_ports() {
+	grep -Fq 'ARGOCD_HTTP_NODE_PORT=30080' scripts/install-cluster-components.sh
+	grep -Fq 'ARGOCD_HTTPS_NODE_PORT=30443' scripts/install-cluster-components.sh
+}
+
 validate_arm64_scsi_qemuargs
 validate_arm64_scsi_qemuargs_negative_fixture
+validate_argocd_lima_port_forward
+validate_argocd_node_ports
 
 if command -v packer >/dev/null 2>&1; then
 	ssh_key_dir="$(mktemp -d "${TMPDIR:-/tmp}/bundle-vm-base-static-ssh.XXXXXX")"

@@ -48,7 +48,6 @@ jq -n \
 	--arg disk_file "bundle-vm-base-${arch}.qcow2.xz" \
 	--arg k3s_version "${K3S_VERSION}" \
 	--arg cert_manager_version "${CERT_MANAGER_VERSION}" \
-	--arg argocd_version "${ARGOCD_VERSION}" \
 	--arg helm_version "${HELM_VERSION}" \
 	--arg kubectl_version "${KUBECTL_VERSION}" \
 	'{
@@ -70,7 +69,6 @@ jq -n \
     components: {
       k3s: $k3s_version,
       certManager: $cert_manager_version,
-      argoCd: $argocd_version,
       helm: $helm_version,
       kubectl: $kubectl_version
     }

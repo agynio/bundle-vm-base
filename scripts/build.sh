@@ -362,7 +362,6 @@ run_packer_build() {
 		-var "disk_size=${DISK_SIZE}" \
 		-var "k3s_version=${K3S_VERSION}" \
 		-var "cert_manager_version=${CERT_MANAGER_VERSION}" \
-		-var "argocd_version=${ARGOCD_VERSION}" \
 		-var "helm_version=${HELM_VERSION}" \
 		-var "kubectl_version=${KUBECTL_VERSION}" \
 		-var "qemu_accelerator=${accelerator}" \

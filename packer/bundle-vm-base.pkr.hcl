@@ -40,10 +40,6 @@ variable "cert_manager_version" {
   type = string
 }
 
-variable "argocd_version" {
-  type = string
-}
-
 variable "helm_version" {
   type = string
 }
@@ -90,8 +86,11 @@ locals {
   machine         = var.arch == "amd64" ? "pc" : "virt"
   cpu             = contains(["kvm", "hvf"], var.qemu_accelerator) ? "host" : "max"
   cdrom_interface = var.arch == "amd64" ? "" : "virtio-scsi"
-  iso_url         = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/${var.ubuntu_series}-server-cloudimg-${local.ubuntu_arch}.img"
-  sha_url         = "https://cloud-images.ubuntu.com/${var.ubuntu_series}/current/SHA256SUMS"
+  # Ubuntu *minimal* cloud image: same kernel/cloud-init/apt as the server
+  # flavor but ~900 MB smaller installed footprint. Everything the image needs
+  # beyond it is installed explicitly by provision-base.sh.
+  iso_url         = "https://cloud-images.ubuntu.com/minimal/releases/${var.ubuntu_series}/release/ubuntu-${var.ubuntu_version}-minimal-cloudimg-${local.ubuntu_arch}.img"
+  sha_url         = "https://cloud-images.ubuntu.com/minimal/releases/${var.ubuntu_series}/release/SHA256SUMS"
   arm64_qemuargs = concat([
     ["-cpu", local.cpu],
     ["-boot", "strict=off"],
@@ -151,7 +150,6 @@ build {
       "ARCH=${var.arch}",
       "K3S_VERSION=${var.k3s_version}",
       "CERT_MANAGER_VERSION=${var.cert_manager_version}",
-      "ARGOCD_VERSION=${var.argocd_version}",
       "HELM_VERSION=${var.helm_version}",
       "KUBECTL_VERSION=${var.kubectl_version}",
     ]

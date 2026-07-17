@@ -30,7 +30,7 @@ print_failure_debug() {
 	{
 		echo "[provision-base] failed with status ${status} at line ${line}: ${command}"
 		echo "[provision-base] architecture: ${ARCH:-unset}"
-		echo "[provision-base] versions: k3s=${K3S_VERSION:-unset} cert-manager=${CERT_MANAGER_VERSION:-unset} argocd=${ARGOCD_VERSION:-unset} helm=${HELM_VERSION:-unset} kubectl=${KUBECTL_VERSION:-unset}"
+		echo "[provision-base] versions: k3s=${K3S_VERSION:-unset} cert-manager=${CERT_MANAGER_VERSION:-unset} helm=${HELM_VERSION:-unset} kubectl=${KUBECTL_VERSION:-unset}"
 	} >&2
 
 	print_cloud_init_debug
@@ -78,17 +78,16 @@ wait_for_cloud_init
 wait_for_apt
 apt-get update
 wait_for_apt
+# Runtime + bake essentials only. Debug tooling (git, vim, htop, tcpdump,
+# traceroute, rsync, wget, unzip, bash-completion) is intentionally omitted —
+# nothing in the runtime uses it and it is one `apt install` away when needed.
 apt-get install -y --no-install-recommends \
 	apt-transport-https \
-	bash-completion \
 	ca-certificates \
 	cloud-init \
 	conntrack \
 	curl \
 	dnsutils \
-	git \
-	gnupg \
-	htop \
 	iproute2 \
 	iptables \
 	jq \
@@ -98,14 +97,8 @@ apt-get install -y --no-install-recommends \
 	open-iscsi \
 	openssh-server \
 	qemu-guest-agent \
-	rsync \
 	socat \
 	tar \
-	tcpdump \
-	traceroute \
-	unzip \
-	vim \
-	wget \
 	xz-utils
 
 systemctl enable qemu-guest-agent
@@ -124,7 +117,6 @@ cat >/etc/agyn/base-image.env <<EOF
 ARCH=${ARCH}
 K3S_VERSION=${K3S_VERSION}
 CERT_MANAGER_VERSION=${CERT_MANAGER_VERSION}
-ARGOCD_VERSION=${ARGOCD_VERSION}
 HELM_VERSION=${HELM_VERSION}
 KUBECTL_VERSION=${KUBECTL_VERSION}
 EOF

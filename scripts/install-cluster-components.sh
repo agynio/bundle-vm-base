@@ -10,9 +10,6 @@ COMPONENT_IMAGES=(
 	"quay.io/jetstack/cert-manager-controller:${CERT_MANAGER_VERSION}"
 	"quay.io/jetstack/cert-manager-cainjector:${CERT_MANAGER_VERSION}"
 	"quay.io/jetstack/cert-manager-webhook:${CERT_MANAGER_VERSION}"
-	"quay.io/argoproj/argocd:${ARGOCD_VERSION}"
-	"ghcr.io/dexidp/dex:v2.41.1"
-	"redis:7.2.7-alpine"
 )
 
 log_k3s_readiness() {
@@ -100,7 +97,7 @@ pre_pull_component_images() {
 	done
 
 	echo "[component images] images available in k3s containerd"
-	k3s crictl images | grep -E 'cert-manager|argocd|dex|redis' || true
+	k3s crictl images | grep -E 'cert-manager' || true
 }
 
 pre_pull_component_images
@@ -165,20 +162,10 @@ wait_for_deployment_rollout cert-manager cert-manager "${COMPONENT_ROLLOUT_TIMEO
 wait_for_deployment_rollout cert-manager cert-manager-cainjector "${COMPONENT_ROLLOUT_TIMEOUT}"
 wait_for_deployment_rollout cert-manager cert-manager-webhook "${COMPONENT_ROLLOUT_TIMEOUT}"
 
-kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply --validate=false -f -
-apply_remote_manifest "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml" -n argocd
-wait_for_deployment_rollout argocd argocd-applicationset-controller "${COMPONENT_ROLLOUT_TIMEOUT}"
-wait_for_deployment_rollout argocd argocd-dex-server "${COMPONENT_ROLLOUT_TIMEOUT}"
-wait_for_deployment_rollout argocd argocd-notifications-controller "${COMPONENT_ROLLOUT_TIMEOUT}"
-wait_for_deployment_rollout argocd argocd-redis "${COMPONENT_ROLLOUT_TIMEOUT}"
-wait_for_deployment_rollout argocd argocd-repo-server "${COMPONENT_ROLLOUT_TIMEOUT}"
-wait_for_deployment_rollout argocd argocd-server "${COMPONENT_ROLLOUT_TIMEOUT}"
-
 cat >/etc/agyn/components.json <<EOF
 {
   "k3s": "${K3S_VERSION}",
   "certManager": "${CERT_MANAGER_VERSION}",
-  "argoCd": "${ARGOCD_VERSION}",
   "helm": "${HELM_VERSION}",
   "kubectl": "${KUBECTL_VERSION}"
 }

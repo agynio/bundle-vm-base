@@ -83,14 +83,21 @@ if [ "${free_gb}" -lt 20 ]; then
 	fail "need at least 20G free, have ${free_gb}G"
 fi
 
-log "static validation"
-scripts/static-validate.sh
-
 if [ "${skip_build}" = true ]; then
-	log "skipping build (--skip-build)"
+	# --skip-build republishes a build that was already validated on its way in,
+	# and its output directory is the thing being republished.
+	log "skipping build and static validation (--skip-build)"
 else
-	log "building ${arch}"
+	# Before validation, not after: static-validate.sh runs `packer validate`,
+	# which refuses to run while an output directory from a previous build is
+	# still there. Clearing it afterwards meant every second release failed.
+	log "clearing previous output"
 	rm -rf "packer/output/${arch}"
+
+	log "static validation"
+	scripts/static-validate.sh
+
+	log "building ${arch}"
 	scripts/build.sh "${arch}"
 fi
 

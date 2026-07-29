@@ -142,12 +142,18 @@ jobs:
           fi
           scripts/publish.sh amd64 "${{ steps.version.outputs.version }}" "${IMAGE}" "${tags[@]}"
 
+  # arm64 only builds where a runner can actually accelerate it. GitHub's hosted
+  # ubuntu-24.04-arm has no usable /dev/kvm, so defaulting to it meant this job
+  # failed on every push — a permanently red main that says nothing about the
+  # code. Until an ARM64 runner with KVM exists, arm64 is built by a maintainer
+  # (scripts/release.sh arm64 VERSION); set ARM64_BUILD_RUNNER to switch this
+  # job back on, and it needs no other change.
   build-arm64:
     needs: static
     if: >-
-      github.event_name != 'pull_request' ||
-      vars.RUN_ARM64_PR_BUILD == 'true'
-    runs-on: ${{ vars.ARM64_BUILD_RUNNER || vars.ARM64_KVM_RUNNER || 'ubuntu-24.04-arm' }}
+      (vars.ARM64_BUILD_RUNNER || vars.ARM64_KVM_RUNNER) &&
+      (github.event_name != 'pull_request' || vars.RUN_ARM64_PR_BUILD == 'true')
+    runs-on: ${{ vars.ARM64_BUILD_RUNNER || vars.ARM64_KVM_RUNNER }}
     timeout-minutes: 360
     steps:
       - name: Checkout

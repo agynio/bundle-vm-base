@@ -89,8 +89,8 @@ locals {
   # Ubuntu *minimal* cloud image: same kernel/cloud-init/apt as the server
   # flavor but ~900 MB smaller installed footprint. Everything the image needs
   # beyond it is installed explicitly by provision-base.sh.
-  iso_url         = "https://cloud-images.ubuntu.com/minimal/releases/${var.ubuntu_series}/release/ubuntu-${var.ubuntu_version}-minimal-cloudimg-${local.ubuntu_arch}.img"
-  sha_url         = "https://cloud-images.ubuntu.com/minimal/releases/${var.ubuntu_series}/release/SHA256SUMS"
+  iso_url = "https://cloud-images.ubuntu.com/minimal/releases/${var.ubuntu_series}/release/ubuntu-${var.ubuntu_version}-minimal-cloudimg-${local.ubuntu_arch}.img"
+  sha_url = "https://cloud-images.ubuntu.com/minimal/releases/${var.ubuntu_series}/release/SHA256SUMS"
   arm64_qemuargs = concat([
     ["-cpu", local.cpu],
     ["-boot", "strict=off"],

@@ -78,7 +78,6 @@ if command -v packer >/dev/null 2>&1; then
 			-var ssh_public_key="${ssh_public_key}" \
 			-var k3s_version=v0.0.0 \
 			-var cert_manager_version=v0.0.0 \
-			-var argocd_version=v0.0.0 \
 			-var helm_version=v0.0.0 \
 			-var kubectl_version=v0.0.0 \
 			.
@@ -88,7 +87,6 @@ if command -v packer >/dev/null 2>&1; then
 			-var ssh_public_key="${ssh_public_key}" \
 			-var k3s_version=v0.0.0 \
 			-var cert_manager_version=v0.0.0 \
-			-var argocd_version=v0.0.0 \
 			-var helm_version=v0.0.0 \
 			-var kubectl_version=v0.0.0 \
 			.
@@ -101,7 +99,6 @@ if command -v packer >/dev/null 2>&1; then
 			-var ssh_public_key="${ssh_public_key}" \
 			-var k3s_version=v0.0.0 \
 			-var cert_manager_version=v0.0.0 \
-			-var argocd_version=v0.0.0 \
 			-var helm_version=v0.0.0 \
 			-var kubectl_version=v0.0.0 \
 			.

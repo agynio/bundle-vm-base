@@ -8,8 +8,10 @@ name: Release
 # exists, arm64 is released from a maintainer's machine with the same script
 # this workflow runs — see `scripts/release.sh`.
 
+# Never on pull_request: a release publishes, and a PR is not a release.
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
   workflow_dispatch:
@@ -37,13 +39,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A tag publishes the version users pin; a push to main publishes
+      # sha-<commit>, which exists so the image is known to still build and so a
+      # specific commit can be tried by the platform build.
       - name: Resolve version
         id: version
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
             version="${{ github.event.inputs.version }}"
-          else
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             version="${GITHUB_REF_NAME#v}"
+          else
+            version="sha-$(git rev-parse --short HEAD)"
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "Releasing ${version}"
@@ -117,9 +124,11 @@ jobs:
             echo "BASE_IMAGE_VERSION=${{ steps.version.outputs.version }}"
             echo '```'
             echo
-            echo "**arm64 is not built by CI.** Release it from a maintainer machine:"
-            echo
-            echo '```bash'
-            echo "scripts/release.sh arm64 ${{ steps.version.outputs.version }}"
-            echo '```'
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              echo "**arm64 is not built by CI.** Release it from a maintainer machine:"
+              echo
+              echo '```bash'
+              echo "scripts/release.sh arm64 ${{ steps.version.outputs.version }}"
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

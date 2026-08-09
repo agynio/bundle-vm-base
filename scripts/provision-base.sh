@@ -106,6 +106,12 @@ systemctl enable iscsid
 
 install -d -m 0755 /usr/local/bin /etc/agyn /etc/rancher/k3s
 
+# Every devspace container watches its synced tree as uid 1000, so they share
+# one 128-instance budget and the sync dies once enough services run.
+cat >/etc/sysctl.d/99-inotify.conf <<'EOF'
+fs.inotify.max_user_instances=1024
+EOF
+
 curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" -o /tmp/helm.tar.gz
 tar -C /tmp -xzf /tmp/helm.tar.gz
 install -m 0755 "/tmp/linux-${ARCH}/helm" /usr/local/bin/helm
